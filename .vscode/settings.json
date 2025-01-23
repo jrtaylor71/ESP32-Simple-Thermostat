@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "esp32 thermostat": "cpp"
+    },
+    "python.pythonPath": "/usr/bin/python3"
+}
