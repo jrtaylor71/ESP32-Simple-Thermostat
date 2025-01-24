@@ -58,6 +58,8 @@ String mqttPassword = "your_password";  // Replace with your MQTT password
 bool heatingOn = false;
 bool coolingOn = false;
 bool fanOn = false;
+String thermostatMode = "auto"; // Default thermostat mode
+String fanMode = "auto"; // Default fan mode
 
 // EEPROM addresses
 const int EEPROM_SIZE = 512;
@@ -488,6 +490,20 @@ void drawButtons()
     tft.setTextColor(TFT_WHITE);
     tft.setTextSize(2);
     tft.print("-");
+
+    // Draw the thermostat mode button
+    tft.fillRect(130, 200, 60, 40, TFT_BLUE);
+    tft.setCursor(140, 215);
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.print(thermostatMode);
+
+    // Draw the fan mode button
+    tft.fillRect(200, 200, 60, 40, TFT_ORANGE);
+    tft.setCursor(210, 215);
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.print(fanMode);
 }
 
 void handleButtonPress(uint16_t x, uint16_t y)
@@ -501,6 +517,32 @@ void handleButtonPress(uint16_t x, uint16_t y)
     else if (x > 50 && x < 90 && y > 200 && y < 240)
     {
         setTemp -= 1.0;
+        saveSettings();
+        updateDisplay(currentTemp, currentHumidity);
+    }
+    else if (x > 130 && x < 190 && y > 200 && y < 240)
+    {
+        // Change thermostat mode
+        if (thermostatMode == "auto")
+            thermostatMode = "heat";
+        else if (thermostatMode == "heat")
+            thermostatMode = "cool";
+        else
+            thermostatMode = "auto";
+
+        saveSettings();
+        updateDisplay(currentTemp, currentHumidity);
+    }
+    else if (x > 200 && x < 260 && y > 200 && y < 240)
+    {
+        // Change fan mode
+        if (fanMode == "auto")
+            fanMode = "on";
+        else if (fanMode == "on")
+            fanMode = "off";
+        else
+            fanMode = "auto";
+
         saveSettings();
         updateDisplay(currentTemp, currentHumidity);
     }
@@ -793,6 +835,10 @@ void saveSettings()
         EEPROM.write(ADDR_HOME_ASSISTANT_API_KEY + i, i < homeAssistantApiKey.length() ? homeAssistantApiKey[i] : 0);
     }
 
+    // Save thermostat and fan modes
+    EEPROM.write(ADDR_FAN_MINUTES_PER_HOUR + sizeof(int) + 32, thermostatMode == "auto" ? 0 : (thermostatMode == "heat" ? 1 : 2));
+    EEPROM.write(ADDR_FAN_MINUTES_PER_HOUR + sizeof(int) + 33, fanMode == "auto" ? 0 : (fanMode == "on" ? 1 : 2));
+
     saveWiFiSettings();
     EEPROM.commit();
 }
@@ -811,6 +857,8 @@ void loadSettings()
         fanMinutesPerHour = 15;
         homeAssistantApiKey = "";
         screenBlankTime = 120;
+        thermostatMode = "auto";
+        fanMode = "auto";
 
         saveSettings();
     } else {
@@ -854,6 +902,12 @@ void loadSettings()
         }
         passwordBuffer[64] = '\0';
         wifiPassword = String(passwordBuffer);
+
+        // Load thermostat and fan modes
+        int mode = EEPROM.read(ADDR_FAN_MINUTES_PER_HOUR + sizeof(int) + 32);
+        thermostatMode = mode == 0 ? "auto" : (mode == 1 ? "heat" : "cool");
+        mode = EEPROM.read(ADDR_FAN_MINUTES_PER_HOUR + sizeof(int) + 33);
+        fanMode = mode == 0 ? "auto" : (mode == 1 ? "on" : "off");
     }
 }
 
