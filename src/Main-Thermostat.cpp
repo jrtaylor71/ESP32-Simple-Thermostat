@@ -1,17 +1,19 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
-#include <Preferences.h>
+#include <EEPROM.h>
 #include <Wire.h>
 #include <Adafruit_AHTX0.h>
 #include <TFT_eSPI.h>
 #include <HTTPClient.h>
 #include <PubSubClient.h> // Include the MQTT library
+#include <esp_task_wdt.h> // Include the watchdog timer library
+#include <time.h>
 
 // Constants
 const int SECONDS_PER_HOUR = 3600;
+const int WDT_TIMEOUT = 10; // Watchdog timer timeout in seconds
 
 // Globals
-Preferences preferences;
 Adafruit_AHTX0 aht;
 Adafruit_Sensor *ahtTempSensor = nullptr;
 Adafruit_Sensor *ahtHumiditySensor = nullptr;
@@ -19,13 +21,15 @@ AsyncWebServer server(80);
 TFT_eSPI tft = TFT_eSPI();
 WiFiClient espClient;
 PubSubClient mqttClient(espClient); // Initialize the MQTT client
+String inputText = "";
+bool isEnteringSSID = true;
 
 // GPIO pins for relays
-const int heatRelay1Pin = 15;
-const int heatRelay2Pin = 2;
-const int coolRelay1Pin = 4;
-const int coolRelay2Pin = 16;
-const int fanRelayPin = 17;
+const int heatRelay1Pin = 13;
+const int heatRelay2Pin = 12;
+const int coolRelay1Pin = 14;
+const int coolRelay2Pin = 26;
+const int fanRelayPin = 27;
 
 // Settings
 float setTemp = 72.0; // Default set temperature in Fahrenheit
@@ -33,7 +37,8 @@ float tempSwing = 1.0;
 bool autoChangeover = false;
 bool fanRelayNeeded = true;
 bool useFahrenheit = true; // Default to Fahrenheit
-String location = "90210"; // Default ZIP code
+bool mqttEnabled = false; // Default to MQTT disabled
+String location = "54762"; // Default ZIP code
 String wifiSSID = "";
 String wifiPassword = "";
 int fanMinutesPerHour = 15;                                                                     // Default to 15 minutes per hour
@@ -45,7 +50,7 @@ int screenBlankTime = 120;                                                      
 unsigned long lastInteractionTime = 0;                                                          // Last interaction time
 
 // MQTT settings
-String mqttServer = "mqtt.example.com"; // Replace with your MQTT server
+String mqttServer = "192.168.183.238"; // Replace with your MQTT server
 int mqttPort = 1883;                    // Replace with your MQTT port
 String mqttUsername = "your_username";  // Replace with your MQTT username
 String mqttPassword = "your_password";  // Replace with your MQTT password
@@ -53,6 +58,21 @@ String mqttPassword = "your_password";  // Replace with your MQTT password
 bool heatingOn = false;
 bool coolingOn = false;
 bool fanOn = false;
+
+// EEPROM addresses
+const int EEPROM_SIZE = 512;
+const int ADDR_SET_TEMP = 0;
+const int ADDR_TEMP_SWING = ADDR_SET_TEMP + sizeof(float);
+const int ADDR_AUTO_CHANGEOVER = ADDR_TEMP_SWING + sizeof(float);
+const int ADDR_FAN_RELAY_NEEDED = ADDR_AUTO_CHANGEOVER + sizeof(bool);
+const int ADDR_USE_FAHRENHEIT = ADDR_FAN_RELAY_NEEDED + sizeof(bool);
+const int ADDR_MQTT_ENABLED = ADDR_USE_FAHRENHEIT + sizeof(bool);
+const int ADDR_LOCATION = ADDR_MQTT_ENABLED + sizeof(bool);
+const int ADDR_FAN_MINUTES_PER_HOUR = ADDR_LOCATION + 10; // Assuming location is max 10 chars
+const int ADDR_HOME_ASSISTANT_API_KEY = ADDR_FAN_MINUTES_PER_HOUR + sizeof(int);
+const int ADDR_SCREEN_BLANK_TIME = ADDR_HOME_ASSISTANT_API_KEY + 32; // Assuming API key is max 32 chars
+const int ADDR_WIFI_SSID = ADDR_SCREEN_BLANK_TIME + sizeof(int);
+const int ADDR_WIFI_PASSWORD = ADDR_WIFI_SSID + 32; // Assuming SSID is max 32 chars
 
 // Function prototypes
 void setupWiFi();
@@ -66,30 +86,44 @@ void setupMQTT();
 void reconnectMQTT();
 float convertCtoF(float celsius);
 void controlFanSchedule();
+void saveWiFiSettings();
+void drawKeyboard(bool isUpperCaseKeyboard);
+void handleKeyPress(int row, int col);
+void drawButtons();
+void handleButtonPress(uint16_t x, uint16_t y);
+void handleKeyboardTouch(uint16_t x, uint16_t y, bool isUpperCaseKeyboard);
+void connectToWiFi();
+void enterWiFiCredentials();
+void calibrateTouchScreen();
+
+uint16_t calibrationData[5] = { 300, 3700, 300, 3700, 7 }; // Example calibration data
+
+float currentTemp = 0.0;
+float currentHumidity = 0.0;
+bool isUpperCaseKeyboard = true;
 
 void setup()
 {
     Serial.begin(115200);
 
-    // Initialize preferences for storing settings
-    preferences.begin("thermostat", false);
+    // Initialize EEPROM
+    EEPROM.begin(EEPROM_SIZE);
     loadSettings();
-
-    // Setup WiFi
-    setupWiFi();
 
     // Initialize the AHT20 sensor
     Wire.begin();
     if (!aht.begin())
     {
         Serial.println("Could not find AHT? Check wiring");
-        while (1)
-            delay(10);
+        ahtTempSensor = nullptr;
+        ahtHumiditySensor = nullptr;
     }
-
-    // Get references to the temperature and humidity sensors
-    ahtTempSensor = aht.getTemperatureSensor();
-    ahtHumiditySensor = aht.getHumiditySensor();
+    else
+    {
+        // Get references to the temperature and humidity sensors
+        ahtTempSensor = aht.getTemperatureSensor();
+        ahtHumiditySensor = aht.getHumiditySensor();
+    }
 
     // Initialize the TFT display
     tft.init();
@@ -99,6 +133,9 @@ void setup()
     tft.setTextSize(2);
     tft.setCursor(0, 0);
     tft.println("Thermostat");
+
+    // Calibrate touch screen
+    calibrateTouchScreen();
 
     // Initialize relay pins
     pinMode(heatRelay1Pin, OUTPUT);
@@ -114,41 +151,82 @@ void setup()
     digitalWrite(coolRelay2Pin, LOW);
     digitalWrite(fanRelayPin, LOW);
 
+    // Setup WiFi
+    setupWiFi();
+
     // Start the web server
     handleWebRequests();
     server.begin();
 
-    setupMQTT();
+    if (mqttEnabled) {
+        setupMQTT();
+    }
     lastInteractionTime = millis();
+
+    // Initialize buttons
+    drawButtons();
+
+    // Initialize time
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+
+    // Add a delay before attempting to connect to WiFi
+    delay(5000);
+
+    // Initial display update
+    updateDisplay(currentTemp, currentHumidity);
 }
 
 void loop()
 {
-    if (!mqttClient.connected())
+    static unsigned long lastWiFiAttemptTime = 0;
+    static unsigned long lastMQTTAttemptTime = 0;
+    static unsigned long lastDisplayUpdateTime = 0;
+    const unsigned long displayUpdateInterval = 1000; // Update display every second
+
+    // Feed the watchdog timer
+    esp_task_wdt_reset();
+
+    // Attempt to connect to WiFi if not connected
+    if (WiFi.status() != WL_CONNECTED && millis() - lastWiFiAttemptTime > 10000)
     {
-        reconnectMQTT();
+        connectToWiFi();
+        lastWiFiAttemptTime = millis();
     }
-    mqttClient.loop();
 
-    // Read sensor data
-    sensors_event_t tempEvent, humidityEvent;
-    ahtTempSensor->getEvent(&tempEvent);
-    ahtHumiditySensor->getEvent(&humidityEvent);
+    // Comment out MQTT-related code
+    /*
+    if (mqttEnabled)
+    {
+        // Attempt to reconnect to MQTT if not connected and WiFi is connected
+        if (WiFi.status() == WL_CONNECTED && !mqttClient.connected() && millis() - lastMQTTAttemptTime > 5000)
+        {
+            reconnectMQTT();
+            lastMQTTAttemptTime = millis();
+        }
+        mqttClient.loop();
+    }
+    */
 
-    // Convert temperature to Fahrenheit if needed
-    float currentTemp = useFahrenheit ? convertCtoF(tempEvent.temperature) : tempEvent.temperature;
+    // Read sensor data if sensor is available
+    if (ahtTempSensor && ahtHumiditySensor)
+    {
+        sensors_event_t tempEvent, humidityEvent;
+        if (ahtTempSensor->getEvent(&tempEvent) && ahtHumiditySensor->getEvent(&humidityEvent))
+        {
+            // Convert temperature to Fahrenheit if needed
+            currentTemp = useFahrenheit ? convertCtoF(tempEvent.temperature) : tempEvent.temperature;
+            currentHumidity = humidityEvent.relative_humidity;
 
-    // Update display
-    updateDisplay(currentTemp, humidityEvent.relative_humidity);
+            // Control relays based on current temperature
+            controlRelays(currentTemp);
 
-    // Control relays based on current temperature
-    controlRelays(currentTemp);
+            // Send data to Home Assistant
+            sendDataToHomeAssistant(currentTemp, currentHumidity);
+        }
+    }
 
     // Control fan based on schedule
     controlFanSchedule();
-
-    // Send data to Home Assistant
-    sendDataToHomeAssistant(currentTemp, humidityEvent.relative_humidity);
 
     // Handle screen blanking
     if (millis() - lastInteractionTime > screenBlankTime * 1000)
@@ -156,63 +234,276 @@ void loop()
         tft.fillScreen(TFT_BLACK);
     }
 
+    // Handle button presses
+    uint16_t x, y;
+    if (tft.getTouch(&x, &y))
+    {
+        // Wake up the screen if it is blanked
+        if (millis() - lastInteractionTime > screenBlankTime * 1000)
+        {
+            lastInteractionTime = millis();
+            updateDisplay(currentTemp, currentHumidity);
+        }
+        else
+        {
+            Serial.print("Touch detected at: ");
+            Serial.print(x);
+            Serial.print(", ");
+            Serial.println(y);
+            handleButtonPress(x, y);
+            handleKeyboardTouch(x, y, isUpperCaseKeyboard);
+        }
+    }
+
+    // Update display periodically
+    if (millis() - lastDisplayUpdateTime > displayUpdateInterval)
+    {
+        updateDisplay(currentTemp, currentHumidity);
+        lastDisplayUpdateTime = millis();
+    }
+
+    // Control relays based on current temperature
+    controlRelays(currentTemp);
+
     delay(1000); // Adjust delay as needed
 }
 
 void setupWiFi()
 {
-    preferences.begin("wifiCreds", false);
-    wifiSSID = preferences.getString("ssid", "");
-    wifiPassword = preferences.getString("password", "");
+    char ssidBuffer[33];
+    char passwordBuffer[65];
+
+    for (int i = 0; i < 32; i++)
+    {
+        ssidBuffer[i] = EEPROM.read(ADDR_WIFI_SSID + i);
+    }
+    ssidBuffer[32] = '\0';
+    wifiSSID = String(ssidBuffer);
+
+    for (int i = 0; i < 64; i++)
+    {
+        passwordBuffer[i] = EEPROM.read(ADDR_WIFI_PASSWORD + i);
+    }
+    passwordBuffer[64] = '\0';
+    wifiPassword = String(passwordBuffer);
 
     if (wifiSSID != "" && wifiPassword != "")
     {
         WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
-        while (WiFi.status() != WL_CONNECTED)
+        unsigned long startAttemptTime = millis();
+
+        // Only try to connect for 10 seconds
+        while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000)
         {
             delay(1000);
             Serial.println("Connecting to WiFi...");
         }
-        Serial.println("Connected to WiFi");
+
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            Serial.println("Connected to WiFi");
+        }
+        else
+        {
+            Serial.println("Failed to connect to WiFi");
+            enterWiFiCredentials();
+        }
     }
     else
     {
-        // Code to accept WiFi credentials from touch screen or web interface.
-        Serial.println("No WiFi credentials found. Please enter them via the web interface.");
-        server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request)
-                  {
-            String html = "<html><body>";
-            html += "<h1>Enter WiFi Credentials</h1>";
-            html += "<form action='/set_wifi' method='POST'>";
-            html += "SSID: <input type='text' name='ssid'><br>";
-            html += "Password: <input type='password' name='password'><br>";
-            html += "<input type='submit' value='Save'>";
-            html += "</form>";
-            html += "</body></html>";
-            request->send(200, "text/html", html); });
+        // No WiFi credentials found, prompt user to enter them via touch screen
+        Serial.println("No WiFi credentials found. Please enter them via the touch screen.");
+        enterWiFiCredentials();
+    }
+}
 
-        server.on("/set_wifi", HTTP_POST, [](AsyncWebServerRequest *request)
-                  {
-            if (request->hasParam("ssid", true) && request->hasParam("password", true)) {
-                wifiSSID = request->getParam("ssid", true)->value();
-                wifiPassword = request->getParam("password", true)->value();
-                preferences.putString("ssid", wifiSSID);
-                preferences.putString("password", wifiPassword);
-                request->send(200, "text/plain", "WiFi credentials saved! Please restart the device.");
-            } else {
-                request->send(400, "text/plain", "Invalid request");
-            } });
-
-        server.begin();
-        while (WiFi.status() != WL_CONNECTED)
+void enterWiFiCredentials()
+{
+    drawKeyboard(isUpperCaseKeyboard);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        uint16_t x, y;
+        if (tft.getTouch(&x, &y))
         {
-            delay(1000);
-            Serial.println("Waiting for WiFi credentials...");
+            handleKeyboardTouch(x, y, isUpperCaseKeyboard);
         }
+        delay(1000);
+        Serial.println("Waiting for WiFi credentials...");
+    }
+}
+
+void drawKeyboard(bool isUpperCaseKeyboard)
+{
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(0, 0);
+    tft.println(isEnteringSSID ? "Enter SSID:" : "Enter Password:");
+    tft.setCursor(0, 30);
+    tft.println(inputText);
+
+    const char* keys[5][10];
+    if (isUpperCaseKeyboard)
+    {
+        const char* upperKeys[5][10] = {
+            {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+            {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+            {"A", "S", "D", "F", "G", "H", "J", "K", "L", "DEL"},
+            {"Z", "X", "C", "V", "B", "N", "M", "SPACE", "CLR", "OK"},
+            {"!", "@", "#", "$", "%", "^", "&", "*", "(", "SHIFT"}
+        };
+        memcpy(keys, upperKeys, sizeof(upperKeys));
+    }
+    else
+    {
+        const char* lowerKeys[5][10] = {
+            {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+            {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
+            {"a", "s", "d", "f", "g", "h", "j", "k", "l", "DEL"},
+            {"z", "x", "c", "v", "b", "n", "m", "SPACE", "CLR", "OK"},
+            {"!", "@", "#", "$", "%", "^", "&", "*", "(", "SHIFT"}
+        };
+        memcpy(keys, lowerKeys, sizeof(lowerKeys));
     }
 
-    // Setup MQTT
-    setupMQTT();
+    int keyWidth = 25;  // Reduced by 10%
+    int keyHeight = 25; // Reduced by 10%
+    int xOffset = 18;   // Adjusted for reduced size
+    int yOffset = 81;   // Adjusted for reduced size
+
+    for (int row = 0; row < 5; row++)
+    {
+        for (int col = 0; col < 10; col++)
+        {
+            tft.drawRect(col * (keyWidth + 3) + xOffset, row * (keyHeight + 3) + yOffset, keyWidth, keyHeight, TFT_WHITE);
+            tft.setCursor(col * (keyWidth + 3) + xOffset + 5, row * (keyHeight + 3) + yOffset + 5);
+            tft.print(keys[row][col]);
+        }
+    }
+}
+
+void handleKeyPress(int row, int col)
+{
+    const char* keys[5][10];
+    if (isUpperCaseKeyboard)
+    {
+        const char* upperKeys[5][10] = {
+            {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+            {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+            {"A", "S", "D", "F", "G", "H", "J", "K", "L", "DEL"},
+            {"Z", "X", "C", "V", "B", "N", "M", "SPACE", "CLR", "OK"},
+            {"!", "@", "#", "$", "%", "^", "&", "*", "(", "SHIFT"}
+        };
+        memcpy(keys, upperKeys, sizeof(upperKeys));
+    }
+    else
+    {
+        const char* lowerKeys[5][10] = {
+            {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+            {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
+            {"a", "s", "d", "f", "g", "h", "j", "k", "l", "DEL"},
+            {"z", "x", "c", "v", "b", "n", "m", "SPACE", "CLR", "OK"},
+            {"!", "@", "#", "$", "%", "^", "&", "*", "(", "SHIFT"}
+        };
+        memcpy(keys, lowerKeys, sizeof(lowerKeys));
+    }
+
+    const char* keyLabel = keys[row][col];
+
+    if (strcmp(keyLabel, "DEL") == 0)
+    {
+        if (inputText.length() > 0)
+        {
+            inputText.remove(inputText.length() - 1);
+        }
+    }
+    else if (strcmp(keyLabel, "SPACE") == 0)
+    {
+        inputText += " ";
+    }
+    else if (strcmp(keyLabel, "CLR") == 0)
+    {
+        inputText = "";
+    }
+    else if (strcmp(keyLabel, "OK") == 0)
+    {
+        if (isEnteringSSID)
+        {
+            wifiSSID = inputText;
+            inputText = "";
+            isEnteringSSID = false;
+            drawKeyboard(isUpperCaseKeyboard);
+        }
+        else
+        {
+            wifiPassword = inputText;
+            saveWiFiSettings();
+            WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
+            unsigned long startAttemptTime = millis();
+
+            // Only try to connect for 10 seconds
+            while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000)
+            {
+                delay(1000);
+                Serial.println("Connecting to WiFi...");
+            }
+
+            if (WiFi.status() == WL_CONNECTED)
+            {
+                Serial.println("Connected to WiFi");
+            }
+            else
+            {
+                Serial.println("Failed to connect to WiFi");
+            }
+        }
+    }
+    else if (strcmp(keyLabel, "SHIFT") == 0)
+    {
+        isUpperCaseKeyboard = !isUpperCaseKeyboard;
+        drawKeyboard(isUpperCaseKeyboard);
+    }
+    else
+    {
+        inputText += keyLabel;
+    }
+
+    tft.fillRect(0, 30, 320, 30, TFT_BLACK);
+    tft.setCursor(0, 30);
+    tft.println(inputText);
+}
+
+void drawButtons()
+{
+    // Draw the "+" button
+    tft.fillRect(270, 200, 40, 40, TFT_GREEN);
+    tft.setCursor(285, 215);
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.print("+");
+
+    // Draw the "-" button
+    tft.fillRect(50, 200, 40, 40, TFT_RED);
+    tft.setCursor(65, 215);
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.print("-");
+}
+
+void handleButtonPress(uint16_t x, uint16_t y)
+{
+    if (x > 270 && x < 310 && y > 200 && y < 240)
+    {
+        setTemp += 1.0;
+        saveSettings();
+        updateDisplay(currentTemp, currentHumidity);
+    }
+    else if (x > 50 && x < 90 && y > 200 && y < 240)
+    {
+        setTemp -= 1.0;
+        saveSettings();
+        updateDisplay(currentTemp, currentHumidity);
+    }
 }
 
 void setupMQTT()
@@ -353,6 +644,7 @@ void handleWebRequests()
         html += "Auto Changeover: <input type='checkbox' name='autoChangeover' " + String(autoChangeover ? "checked" : "") + "><br>";
         html += "Fan Relay Needed: <input type='checkbox' name='fanRelayNeeded' " + String(fanRelayNeeded ? "checked" : "") + "><br>";
         html += "Use Fahrenheit: <input type='checkbox' name='useFahrenheit' " + String(useFahrenheit ? "checked" : "") + "><br>";
+        html += "MQTT Enabled: <input type='checkbox' name='mqttEnabled' " + String(mqttEnabled ? "checked" : "") + "><br>";
         html += "Fan Minutes Per Hour: <input type='text' name='fanMinutesPerHour' value='" + String(fanMinutesPerHour) + "'><br>";
         html += "Location (ZIP): <input type='text' name='location' value='" + location + "'><br>";
         html += "Home Assistant API Key: <input type='text' name='homeAssistantApiKey' value='" + homeAssistantApiKey + "'><br>";
@@ -379,6 +671,9 @@ void handleWebRequests()
         }
         if (request->hasParam("useFahrenheit", true)) {
             useFahrenheit = request->getParam("useFahrenheit", true)->value() == "on";
+        }
+        if (request->hasParam("mqttEnabled", true)) {
+            mqttEnabled = request->getParam("mqttEnabled", true)->value() == "on";
         }
         if (request->hasParam("fanMinutesPerHour", true)) {
             fanMinutesPerHour = request->getParam("fanMinutesPerHour", true)->value().toInt();
@@ -450,68 +745,116 @@ void handleWebRequests()
 
 void updateDisplay(float currentTemp, float currentHumidity)
 {
-    tft.fillScreen(TFT_BLACK);
-    tft.setCursor(0, 30);
+    // Clear only the areas that need to be updated
+    tft.fillRect(0, 0, 320, 60, TFT_BLACK); // Clear the area for temperature and humidity
+    tft.fillRect(0, 80, 320, 40, TFT_BLACK); // Clear the area for set temperature
+
+    // Display temperature and humidity
+    tft.setTextSize(3);
+    tft.setCursor(0, 0);
     tft.print("Temp: ");
     tft.print(currentTemp);
     tft.println(useFahrenheit ? " F" : " C");
 
-    tft.setCursor(0, 60);
+    tft.setCursor(0, 40);
     tft.print("Humidity: ");
     tft.print(currentHumidity);
     tft.println(" %");
 
-    tft.setCursor(0, 90);
+    // Display set temperature and other settings
+    tft.setTextSize(2);
+    tft.setCursor(0, 80);
     tft.print("Set Temp: ");
     tft.print(setTemp);
     tft.println(useFahrenheit ? " F" : " C");
 
-    tft.setCursor(0, 120);
-    tft.print("Swing: ");
-    tft.print(tempSwing);
-    tft.println(useFahrenheit ? " F" : " C");
-
-    tft.setCursor(0, 150);
-    tft.print("Auto Chng: ");
-    tft.println(autoChangeover ? "On" : "Off");
-
-    tft.setCursor(0, 180);
-    tft.print("Fan Relay: ");
-    tft.println(fanRelayNeeded ? "On" : "Off");
-
-    tft.setCursor(0, 210);
-    tft.print("Fan Minutes: ");
-    tft.println(fanMinutesPerHour);
-
-    tft.setCursor(0, 240);
-    tft.print("Location: ");
-    tft.println(location);
+    // Draw buttons at the bottom
+    drawButtons();
 }
 
 void saveSettings()
 {
-    preferences.putFloat("setTemp", setTemp);
-    preferences.putFloat("tempSwing", tempSwing);
-    preferences.putBool("autoChangeover", autoChangeover);
-    preferences.putBool("fanRelayNeeded", fanRelayNeeded);
-    preferences.putBool("useFahrenheit", useFahrenheit);
-    preferences.putString("location", location);
-    preferences.putInt("fanMinutesPerHour", fanMinutesPerHour);
-    preferences.putString("homeAssistantApiKey", homeAssistantApiKey);
-    preferences.putInt("screenBlankTime", screenBlankTime);
+    EEPROM.put(ADDR_SET_TEMP, setTemp);
+    EEPROM.put(ADDR_TEMP_SWING, tempSwing);
+    EEPROM.put(ADDR_AUTO_CHANGEOVER, autoChangeover);
+    EEPROM.put(ADDR_FAN_RELAY_NEEDED, fanRelayNeeded);
+    EEPROM.put(ADDR_USE_FAHRENHEIT, useFahrenheit);
+    EEPROM.put(ADDR_MQTT_ENABLED, mqttEnabled);
+    EEPROM.put(ADDR_FAN_MINUTES_PER_HOUR, fanMinutesPerHour);
+    EEPROM.put(ADDR_SCREEN_BLANK_TIME, screenBlankTime);
+
+    for (int i = 0; i < 10; i++)
+    {
+        EEPROM.write(ADDR_LOCATION + i, i < location.length() ? location[i] : 0);
+    }
+
+    for (int i = 0; i < 32; i++)
+    {
+        EEPROM.write(ADDR_HOME_ASSISTANT_API_KEY + i, i < homeAssistantApiKey.length() ? homeAssistantApiKey[i] : 0);
+    }
+
+    saveWiFiSettings();
+    EEPROM.commit();
 }
 
 void loadSettings()
 {
-    setTemp = preferences.getFloat("setTemp", 72.0);
-    tempSwing = preferences.getFloat("tempSwing", 0.5);
-    autoChangeover = preferences.getBool("autoChangeover", false);
-    fanRelayNeeded = preferences.getBool("fanRelayNeeded", true);
-    useFahrenheit = preferences.getBool("useFahrenheit", true);
-    location = preferences.getString("location", "90210");
-    fanMinutesPerHour = preferences.getInt("fanMinutesPerHour", 15);
-    homeAssistantApiKey = preferences.getString("homeAssistantApiKey", "");
-    screenBlankTime = preferences.getInt("screenBlankTime", 120);
+    if (EEPROM.read(ADDR_SET_TEMP) == 0xFF) {
+        // EEPROM is not initialized, set default values
+        setTemp = 72.0;
+        tempSwing = 1.0;
+        autoChangeover = false;
+        fanRelayNeeded = true;
+        useFahrenheit = true;
+        mqttEnabled = false;
+        location = "54762";
+        fanMinutesPerHour = 15;
+        homeAssistantApiKey = "";
+        screenBlankTime = 120;
+
+        saveSettings();
+    } else {
+        EEPROM.get(ADDR_SET_TEMP, setTemp);
+        EEPROM.get(ADDR_TEMP_SWING, tempSwing);
+        EEPROM.get(ADDR_AUTO_CHANGEOVER, autoChangeover);
+        EEPROM.get(ADDR_FAN_RELAY_NEEDED, fanRelayNeeded);
+        EEPROM.get(ADDR_USE_FAHRENHEIT, useFahrenheit);
+        EEPROM.get(ADDR_MQTT_ENABLED, mqttEnabled);
+        EEPROM.get(ADDR_FAN_MINUTES_PER_HOUR, fanMinutesPerHour);
+        EEPROM.get(ADDR_SCREEN_BLANK_TIME, screenBlankTime);
+
+        char locBuffer[11];
+        for (int i = 0; i < 10; i++)
+        {
+            locBuffer[i] = EEPROM.read(ADDR_LOCATION + i);
+        }
+        locBuffer[10] = '\0';
+        location = String(locBuffer);
+
+        char apiKeyBuffer[33];
+        for (int i = 0; i < 32; i++)
+        {
+            apiKeyBuffer[i] = EEPROM.read(ADDR_HOME_ASSISTANT_API_KEY + i);
+        }
+        apiKeyBuffer[32] = '\0';
+        homeAssistantApiKey = String(apiKeyBuffer);
+
+        char ssidBuffer[33];
+        for (int i = 0; i < 32; i++)
+        {
+            ssidBuffer[i] = EEPROM.read(ADDR_WIFI_SSID + i);
+        }
+        ssidBuffer[32] = '\0';
+        wifiSSID = String(ssidBuffer);
+
+        char passwordBuffer[65];
+        for (int i = 0; i < 64; i++)
+        {
+            passwordBuffer[i] = EEPROM.read(ADDR_WIFI_PASSWORD + i);
+        }
+        passwordBuffer[64] = '\0';
+        wifiPassword = String(passwordBuffer);
+    }
 }
 
 void sendDataToHomeAssistant(float temperature, float humidity)
@@ -545,4 +888,131 @@ void sendDataToHomeAssistant(float temperature, float humidity)
 float convertCtoF(float celsius)
 {
     return celsius * 9.0 / 5.0 + 32.0;
+}
+
+void saveWiFiSettings()
+{
+    for (int i = 0; i < 32; i++)
+    {
+        EEPROM.write(ADDR_WIFI_SSID + i, i < wifiSSID.length() ? wifiSSID[i] : 0);
+    }
+
+    for (int i = 0; i < 64; i++)
+    {
+        EEPROM.write(ADDR_WIFI_PASSWORD + i, i < wifiPassword.length() ? wifiPassword[i] : 0);
+    }
+
+    EEPROM.commit();
+}
+
+void connectToWiFi()
+{
+    if (wifiSSID != "" && wifiPassword != "")
+    {
+        Serial.print("Connecting to WiFi with SSID: ");
+        Serial.println(wifiSSID);
+        Serial.print("Password: ");
+        Serial.println(wifiPassword);
+
+        WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
+        unsigned long startAttemptTime = millis();
+
+        // Only try to connect for 10 seconds
+        while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000)
+        {
+            delay(1000);
+            Serial.println("Connecting to WiFi...");
+        }
+
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            Serial.println("Connected to WiFi");
+        }
+        else
+        {
+            Serial.println("Failed to connect to WiFi");
+        }
+    }
+    else
+    {
+        // Code to accept WiFi credentials from touch screen or web interface.
+        Serial.println("No WiFi credentials found. Please enter them via the web interface.");
+        drawKeyboard(isUpperCaseKeyboard);
+        while (WiFi.status() != WL_CONNECTED)
+        {
+            delay(1000);
+            Serial.println("Waiting for WiFi credentials...");
+        }
+    }
+}
+
+void calibrateTouchScreen()
+{
+    uint16_t calData[5];
+    uint8_t calDataOK = 0;
+
+    // Check if calibration data is stored in EEPROM
+    if (EEPROM.read(0) == 0x55)
+    {
+        for (uint8_t i = 0; i < 5; i++)
+        {
+            calData[i] = EEPROM.read(1 + i * 2) << 8 | EEPROM.read(2 + i * 2);
+        }
+        tft.setTouch(calData);
+        calDataOK = 1;
+    }
+
+    if (calDataOK && tft.getTouchRaw(&calData[0], &calData[1]))
+    {
+        Serial.println("Touch screen calibration data loaded from EEPROM");
+    }
+    else
+    {
+        Serial.println("Calibrating touch screen...");
+        tft.fillScreen(TFT_BLACK);
+        tft.setCursor(20, 0);
+        tft.setTextFont(2);
+        tft.setTextSize(1);
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+        tft.println("Touch corners as indicated");
+        tft.setTextFont(1);
+        tft.println();
+
+        tft.calibrateTouch(calData, TFT_WHITE, TFT_RED, 15);
+
+        // Store calibration data in EEPROM
+        EEPROM.write(0, 0x55);
+        for (uint8_t i = 0; i < 5; i++)
+        {
+            EEPROM.write(1 + i * 2, calData[i] >> 8);
+            EEPROM.write(2 + i * 2, calData[i] & 0xFF);
+        }
+        EEPROM.commit();
+    }
+}
+
+void handleKeyboardTouch(uint16_t x, uint16_t y, bool isUpperCaseKeyboard)
+{
+    for (int row = 0; row < 5; row++)
+    {
+        for (int col = 0; col < 10; col++)
+        {
+            int keyWidth = 25;  // Reduced by 10%
+            int keyHeight = 25; // Reduced by 10%
+            int xOffset = 18;   // Adjusted for reduced size
+            int yOffset = 81;   // Adjusted for reduced size
+
+            if (x > col * (keyWidth + 3) + xOffset && x < col * (keyWidth + 3) + xOffset + keyWidth &&
+                y > row * (keyHeight + 3) + yOffset && y < row * (keyHeight + 3) + yOffset + keyHeight)
+            {
+                Serial.print("Key pressed at row: ");
+                Serial.print(row);
+                Serial.print(", col: ");
+                Serial.println(col);
+                handleKeyPress(row, col);
+                return;
+            }
+        }
+    }
 }
