@@ -7,7 +7,7 @@
 #include <HTTPClient.h>
 #include <PubSubClient.h> // Include the MQTT library
 #include <esp_task_wdt.h> // Include the watchdog timer library
-#include <time.h>
+#include <time.h> // Include the time library
 
 // Constants
 const int SECONDS_PER_HOUR = 3600;
@@ -41,6 +41,7 @@ bool fanRelayNeeded = false;
 bool useFahrenheit = true; // Default to Fahrenheit
 bool mqttEnabled = false; // Default to MQTT disabled
 bool homeAssistantEnabled = false; // Default to Home Assistant enabled
+String location = ""; // Remove default ZIP code
 String wifiSSID = "";
 String wifiPassword = "";
 int fanMinutesPerHour = 15;                                                                     // Default to 15 minutes per hour
@@ -50,7 +51,6 @@ String homeAssistantUrl = "http://homeassistant.local:8123/api/states/sensor.esp
 String homeAssistantApiKey = "your_api_key";                                                                // Home Assistant API Key
 unsigned long lastInteractionTime = 0;                                                          // Last interaction time
 const float tempDifferential = 4.0; // Fixed differential between heat and cool for auto changeover
-bool use24HourClock = true; // Default to 24-hour clock
 
 // MQTT settings
 String mqttServer = "192.168.183.238"; // Replace with your MQTT server
@@ -87,6 +87,8 @@ void connectToWiFi();
 void enterWiFiCredentials();
 void calibrateTouchScreen();
 void restoreDefaultSettings();
+void updateTimeZone(const String &timeZone);
+void updateTimeFromNTP();
 
 uint16_t calibrationData[5] = { 300, 3700, 300, 3700, 7 }; // Example calibration data
 
@@ -97,13 +99,14 @@ float previousTemp = 0.0;
 float previousHumidity = 0.0;
 float previousSetTemp = 0.0;
 bool firstHourAfterBoot = true; // Flag to track the first hour after bootup
+unsigned long lastNTPUpdateTime = 0; // Last time the NTP update was performed
 
 void setup()
 {
     Serial.begin(115200);
 
     // Initialize Preferences
-    preferences.begin("thermostat", false);
+    preferences.begin("thermostat", false); // Correct the namespace to "thermostat"
     loadSettings();
 
     // Debug print to check if homeAssistantEnabled is loaded correctly
@@ -120,7 +123,7 @@ void setup()
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setTextSize(2);
     tft.setCursor(0, 0);
-    tft.println("Thermostat");
+    tft.println("Loading settings...");
 
     // Calibrate touch screen
     calibrateTouchScreen();
@@ -155,9 +158,7 @@ void setup()
     drawButtons();
 
     // Initialize time from NTP server
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    setenv("TZ", timeZone.c_str(), 1);
-    tzset();
+    updateTimeFromNTP();
 
     // Add a delay before attempting to connect to WiFi
     delay(5000);
@@ -227,6 +228,13 @@ void loop()
     {
         updateDisplay(currentTemp, currentHumidity);
         lastDisplayUpdateTime = millis();
+    }
+
+    // Update time from NTP server once per day
+    if (millis() - lastNTPUpdateTime > 86400000) // 24 hours in milliseconds
+    {
+        updateTimeFromNTP();
+        lastNTPUpdateTime = millis();
     }
 
     // Control relays based on current temperature
@@ -406,6 +414,7 @@ void handleKeyPress(int row, int col)
             if (WiFi.status() == WL_CONNECTED)
             {
                 Serial.println("Connected to WiFi");
+                tft.fillScreen(TFT_BLACK); // Clear the display after entering WiFi credentials
             }
             else
             {
@@ -438,8 +447,8 @@ void drawButtons()
     tft.print("+");
 
     // Draw the "-" button
-    tft.fillRect(50, 200, 40, 40, TFT_RED);
-    tft.setCursor(65, 215);
+    tft.fillRect(0, 200, 40, 40, TFT_RED);
+    tft.setCursor(15, 215);
     tft.setTextColor(TFT_WHITE);
     tft.setTextSize(2);
     tft.print("-");
@@ -486,7 +495,7 @@ void handleButtonPress(uint16_t x, uint16_t y)
         saveSettings();
         updateDisplay(currentTemp, currentHumidity);
     }
-    else if (x > 50 && x < 90 && y > 200 && y < 240)
+    else if (x > 0 && x < 40 && y > 200 && y < 240) 
     {
         if (thermostatMode == "heat" || thermostatMode == "auto")
         {
@@ -746,10 +755,6 @@ void handleWebRequests()
         html += "MQTT Password: <input type='text' name='mqttPassword' value='" + mqttPassword + "'><br>";
         html += "WiFi SSID: <input type='text' name='wifiSSID' value='" + wifiSSID + "'><br>";
         html += "WiFi Password: <input type='text' name='wifiPassword' value='" + wifiPassword + "'><br>";
-        html += "Clock Format: <select name='clockFormat'>"; // Add clock format drop-down list
-        html += "<option value='24' " + String(use24HourClock ? "selected" : "") + ">24-hour</option>";
-        html += "<option value='12' " + String(!use24HourClock ? "selected" : "") + ">12-hour</option>";
-        html += "</select><br>";
         html += "Time Zone: <select name='timeZone'>"; // Add time zone drop-down list
         html += "<option value='UTC' " + String(timeZone == "UTC" ? "selected" : "") + ">UTC</option>";
         html += "<option value='PST8PDT,M3.2.0,M11.1.0' " + String(timeZone == "PST8PDT,M3.2.0,M11.1.0" ? "selected" : "") + ">Pacific Time (PST)</option>";
@@ -841,21 +846,13 @@ void handleWebRequests()
                 wifiPassword = newWifiPassword; // Update wifiPassword only if a new one is provided
             }
         }
-        if (request->hasParam("clockFormat", true)) {
-            use24HourClock = request->getParam("clockFormat", true)->value() == "24";
-        }
         if (request->hasParam("timeZone", true)) {
-            timeZone = request->getParam("timeZone", true)->value();
-            setenv("TZ", timeZone.c_str(), 1);
-            tzset();
+            timeZone = request->getParam("timeZone", true)->value(); // Update time zone
+            updateTimeZone(timeZone); // Set timezone based on user setting
         }
 
         saveSettings();
-        String response = "<html><body><h1>Settings saved!</h1>";
-        response += "<p>Returning to the home page in 5 seconds...</p>";
-        response += "<script>setTimeout(function(){ window.location.href = '/'; }, 5000);</script>";
-        response += "</body></html>";
-        request->send(200, "text/html", response); });
+        request->send(200, "text/plain", "Settings saved! Please go back to the previous page."); });
 
     // Handle RESTful commands from Home Assistant
     server.on("/set_heating", HTTP_POST, [](AsyncWebServerRequest *request)
@@ -910,23 +907,21 @@ void updateDisplay(float currentTemp, float currentHumidity)
 {
     // Get current time
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo))
+    if (!getLocalTime(&timeinfo))
     {
-        char timeStr[32];
-        if (use24HourClock) {
-            strftime(timeStr, sizeof(timeStr), "%H:%M %A", &timeinfo);
-        } else {
-            strftime(timeStr, sizeof(timeStr), "%I:%M %p %A", &timeinfo);
-        }
-
-        // Clear the area for time display
-        tft.fillRect(0, 0, 240, 20, TFT_BLACK);
-
-        // Display current time and day of the week
-        tft.setTextSize(2);
-        tft.setCursor(0, 0);
-        tft.print(timeStr);
+        Serial.println("Failed to obtain time");
+        return;
     }
+    char timeStr[32];
+    snprintf(timeStr, sizeof(timeStr), "%02d:%02d %s", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_wday);
+
+    // Clear the area for time display
+    tft.fillRect(0, 0, 240, 20, TFT_BLACK);
+
+    // Display current time and day of the week
+    tft.setTextSize(2);
+    tft.setCursor(0, 0);
+    tft.print(timeStr);
 
     // Update temperature and humidity only if they have changed
     if (currentTemp != previousTemp || currentHumidity != previousHumidity)
@@ -1007,7 +1002,6 @@ void saveSettings()
     preferences.putString("thermoMode", thermostatMode); // Shortened key
     preferences.putString("fanMode", fanMode);
     preferences.putString("timeZone", timeZone); // Save time zone
-    preferences.putBool("use24HourClock", use24HourClock); // Save clock format
 
     saveWiFiSettings();
 
@@ -1036,7 +1030,6 @@ void loadSettings()
     thermostatMode = preferences.getString("thermoMode", "off"); // Shortened key
     fanMode = preferences.getString("fanMode", "auto");
     timeZone = preferences.getString("timeZone", "CST6CDT,M3.2.0,M11.1.0"); // Load time zone
-    use24HourClock = preferences.getBool("use24HourClock", true); // Load clock format
 
     // Debug print to confirm settings are loaded
     Serial.println("Settings loaded.");
@@ -1206,6 +1199,7 @@ void restoreDefaultSettings()
     useFahrenheit = true;
     mqttEnabled = false;
     homeAssistantEnabled = false;
+    location = "";
     wifiSSID = "";
     wifiPassword = "";
     fanMinutesPerHour = 15;
@@ -1216,8 +1210,27 @@ void restoreDefaultSettings()
     mqttPassword = "your_password";
     thermostatMode = "off";
     fanMode = "auto";
-    timeZone = "CST6CDT,M3.2.0,M11.1.0"; // Reset time zone to default
-    use24HourClock = true; // Reset clock format to default
 
     saveSettings();
+}
+
+void updateTimeZone(const String &timeZone)
+{
+    setenv("TZ", timeZone.c_str(), 1);
+    tzset();
+    Serial.println("Time zone updated to: " + timeZone);
+}
+
+void updateTimeFromNTP()
+{
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo))
+    {
+        Serial.println("Time updated from NTP server");
+    }
+    else
+    {
+        Serial.println("Failed to obtain time from NTP server");
+    }
 }

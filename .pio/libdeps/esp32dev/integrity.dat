@@ -1,9 +1,9 @@
-Wire
-DHT sensor library
-ESP Async WebServer
-Preferences
 EEPROM
-PubSubClient
+DHT sensor library
+Preferences
+ESP Async WebServer
+WiFi
 HTTPClient
 TFT_eSPI
-WiFi
+Wire
+PubSubClient
