@@ -120,7 +120,7 @@ void setup()
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setTextSize(2);
     tft.setCursor(0, 0);
-    tft.println("Thermostat");
+    tft.println("Loading Settings...");
 
     // Calibrate touch screen
     calibrateTouchScreen();
@@ -406,6 +406,8 @@ void handleKeyPress(int row, int col)
             if (WiFi.status() == WL_CONNECTED)
             {
                 Serial.println("Connected to WiFi");
+                delay(2000);
+                ESP.restart();
             }
             else
             {
@@ -1220,4 +1222,7 @@ void restoreDefaultSettings()
     use24HourClock = true; // Reset clock format to default
 
     saveSettings();
+
+    // Reset the ESP32
+    ESP.restart();
 }
