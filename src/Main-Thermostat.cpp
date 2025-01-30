@@ -54,14 +54,11 @@ bool autoChangeover = false;
 bool fanRelayNeeded = false;
 bool useFahrenheit = true; // Default to Fahrenheit
 bool mqttEnabled = false; // Default to MQTT disabled
-bool homeAssistantEnabled = false; // Default to Home Assistant enabled
 String wifiSSID = "";
 String wifiPassword = "";
 int fanMinutesPerHour = 15;                                                                     // Default to 15 minutes per hour
 unsigned long lastFanRunTime = 0;                                                               // Time when the fan last ran
 unsigned long fanRunDuration = 0;                                                               // Duration for which the fan has run in the current hour
-String homeAssistantUrl = "http://homeassistant.local:8123/api/states/sensor.esp32_thermostat"; // Replace with your Home Assistant URL
-String homeAssistantApiKey = "your_api_key";                                                                // Home Assistant API Key
 unsigned long lastInteractionTime = 0;                                                          // Last interaction time
 const float tempDifferential = 4.0; // Fixed differential between heat and cool for auto changeover
 bool use24HourClock = true; // Default to 24-hour clock
@@ -86,7 +83,6 @@ void handleWebRequests();
 void updateDisplay(float currentTemp, float currentHumidity);
 void saveSettings();
 void loadSettings();
-void sendDataToHomeAssistant(float temperature, float humidity);
 void setupMQTT();
 void reconnectMQTT();
 float convertCtoF(float celsius);
@@ -230,9 +226,6 @@ void loop()
     {
         // Control relays based on current temperature
         controlRelays(currentTemp);
-
-        // Send data to Home Assistant
-        sendDataToHomeAssistant(currentTemp, currentHumidity);
     }
 
     // Control fan based on schedule
@@ -471,9 +464,9 @@ void drawButtons()
     tft.setTextSize(2);
     tft.print("+");
 
-    // Draw the "-" button
-    tft.fillRect(50, 200, 40, 40, TFT_RED);
-    tft.setCursor(65, 215);
+    // Move the "-" button to the far bottom left corner
+    tft.fillRect(0, 200, 40, 40, TFT_RED);
+    tft.setCursor(15, 215);
     tft.setTextColor(TFT_WHITE);
     tft.setTextSize(2);
     tft.print("-");
@@ -520,7 +513,7 @@ void handleButtonPress(uint16_t x, uint16_t y)
         saveSettings();
         updateDisplay(currentTemp, currentHumidity);
     }
-    else if (x > 50 && x < 90 && y > 200 && y < 240)
+    else if (x > 0 && x < 40 && y > 200 && y < 240) // Adjusted coordinates for the "-" button
     {
         if (thermostatMode == "heat" || thermostatMode == "auto")
         {
@@ -905,13 +898,10 @@ void handleWebRequests()
         html += "Fan Relay Needed: <input type='checkbox' name='fanRelayNeeded' " + String(fanRelayNeeded ? "checked" : "") + "><br>";
         html += "Use Fahrenheit: <input type='checkbox' name='useFahrenheit' " + String(useFahrenheit ? "checked" : "") + "><br>";
         html += "MQTT Enabled: <input type='checkbox' name='mqttEnabled' " + String(mqttEnabled ? "checked" : "") + "><br>";
-        html += "Home Assistant Enabled: <input type='checkbox' name='homeAssistantEnabled' " + String(homeAssistantEnabled ? "checked" : "") + "><br>";
         html += "Hydronic Heating Enabled: <input type='checkbox' name='hydronicHeatingEnabled' " + String(hydronicHeatingEnabled ? "checked" : "") + "><br>"; // Add hydronic heating option
         html += "Hydronic Temp Low: <input type='text' name='hydronicTempLow' value='" + String(hydronicTempLow) + "'><br>"; // Add hydronic temp low input
         html += "Hydronic Temp High: <input type='text' name='hydronicTempHigh' value='" + String(hydronicTempHigh) + "'><br>"; // Add hydronic temp high input
         html += "Fan Minutes Per Hour: <input type='text' name='fanMinutesPerHour' value='" + String(fanMinutesPerHour) + "'><br>";
-        html += "Home Assistant URL: <input type='text' name='homeAssistantUrl' value='" + homeAssistantUrl + "'><br>";
-        html += "Home Assistant API Key: <input type='text' name='homeAssistantApiKey' value='" + homeAssistantApiKey + "'><br>";
         html += "MQTT Server: <input type='text' name='mqttServer' value='" + mqttServer + "'><br>";
         html += "MQTT Port: <input type='text' name='mqttPort' value='" + String(mqttPort) + "'><br>"; // Add MQTT port input
         html += "MQTT Username: <input type='text' name='mqttUsername' value='" + mqttUsername + "'><br>";
@@ -985,9 +975,6 @@ void handleWebRequests()
         } else {
             mqttEnabled = false; // Ensure mqttEnabled is set to false if not present in the form
         }
-        if (request->hasParam("homeAssistantEnabled", true)) {
-            homeAssistantEnabled = request->getParam("homeAssistantEnabled", true)->value() == "on";
-        }
         if (request->hasParam("hydronicHeatingEnabled", true)) {
             hydronicHeatingEnabled = request->getParam("hydronicHeatingEnabled", true)->value() == "on"; // Handle hydronic heating option
         } else {
@@ -1001,12 +988,6 @@ void handleWebRequests()
         }
         if (request->hasParam("fanMinutesPerHour", true)) {
             fanMinutesPerHour = request->getParam("fanMinutesPerHour", true)->value().toInt();
-        }
-        if (request->hasParam("homeAssistantUrl", true)) {
-            homeAssistantUrl = request->getParam("homeAssistantUrl", true)->value(); // Ensure homeAssistantUrl is updated correctly
-        }
-        if (request->hasParam("homeAssistantApiKey", true)) {
-            homeAssistantApiKey = request->getParam("homeAssistantApiKey", true)->value();
         }
         if (request->hasParam("mqttServer", true)) {
             mqttServer = request->getParam("mqttServer", true)->value(); // Ensure mqttServer is updated correctly
@@ -1216,10 +1197,7 @@ void saveSettings()
     preferences.putBool("fanRelayNeeded", fanRelayNeeded);
     preferences.putBool("useFahrenheit", useFahrenheit);
     preferences.putBool("mqttEnabled", mqttEnabled);
-    preferences.putBool("haEnabled", homeAssistantEnabled); // Shortened key
     preferences.putInt("fanMinPerHr", fanMinutesPerHour); // Shortened key
-    preferences.putString("haUrl", homeAssistantUrl); // Shortened key
-    preferences.putString("haApiKey", homeAssistantApiKey); // Shortened key
     preferences.putString("mqttServer", mqttServer);
     preferences.putInt("mqttPort", mqttPort); // Save MQTT port
     preferences.putString("mqttUser", mqttUsername); // Shortened key
@@ -1249,10 +1227,7 @@ void loadSettings()
     fanRelayNeeded = preferences.getBool("fanRelayNeeded", false);
     useFahrenheit = preferences.getBool("useFahrenheit", true);
     mqttEnabled = preferences.getBool("mqttEnabled", false);
-    homeAssistantEnabled = preferences.getBool("haEnabled", false); // Shortened key
     fanMinutesPerHour = preferences.getInt("fanMinPerHr", 15); // Shortened key
-    homeAssistantUrl = preferences.getString("haUrl", "http://homeassistant.local:8123/api/states/sensor.esp32_thermostat"); // Shortened key
-    homeAssistantApiKey = preferences.getString("haApiKey", ""); // Shortened key
     mqttServer = preferences.getString("mqttServer", "192.168.183.238");
     mqttPort = preferences.getInt("mqttPort", 1883); // Load MQTT port
     mqttUsername = preferences.getString("mqttUser", "your_username"); // Shortened key
@@ -1269,46 +1244,6 @@ void loadSettings()
 
     // Debug print to confirm settings are loaded
     Serial.println("Settings loaded.");
-}
-
-void sendDataToHomeAssistant(float temperature, float humidity)
-{
-    if (homeAssistantEnabled && WiFi.status() == WL_CONNECTED)
-    {
-        HTTPClient http;
-        http.begin(homeAssistantUrl);
-        http.addHeader("Content-Type", "application/json");
-        http.addHeader("Authorization", "Bearer " + homeAssistantApiKey);
-
-        // Debug prints
-        Serial.println("Sending data to Home Assistant...");
-        Serial.print("URL: ");
-        Serial.println(homeAssistantUrl);
-        Serial.print("API Key: ");
-        Serial.println(homeAssistantApiKey);
-
-        String payload = "{\"state\": \"" + String(temperature) + "\", \"attributes\": {\"humidity\": \"" + String(humidity) + "\"}}";
-        int httpResponseCode = http.POST(payload);
-
-        if (httpResponseCode > 0)
-        {
-            String response = http.getString();
-            Serial.println(httpResponseCode);
-            Serial.println(response);
-        }
-        else
-        {
-            Serial.print("Error on sending POST: ");
-            Serial.println(httpResponseCode);
-        }
-
-        http.end();
-    }
-    else
-    {
-        // Debug print to indicate that Home Assistant is disabled
-        // Serial.println("Home Assistant integration is disabled.");
-    }
 }
 
 float convertCtoF(float celsius)
@@ -1434,12 +1369,9 @@ void restoreDefaultSettings()
     fanRelayNeeded = false;
     useFahrenheit = true;
     mqttEnabled = false;
-    homeAssistantEnabled = false;
     wifiSSID = "";
     wifiPassword = "";
     fanMinutesPerHour = 15;
-    homeAssistantUrl = "http://homeassistant.local:8123/api/states/sensor.esp32_thermostat";
-    homeAssistantApiKey = "";
     mqttServer = "0.0.0.0";
     mqttUsername = "your_username";
     mqttPassword = "your_password";
