@@ -9,12 +9,25 @@
 #include <esp_task_wdt.h> // Include the watchdog timer library
 #include <time.h>
 #include <ArduinoJson.h> // Include the ArduinoJson library
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 // Constants
 const int SECONDS_PER_HOUR = 3600;
 const int WDT_TIMEOUT = 10; // Watchdog timer timeout in seconds
 #define DHTPIN 22 // Define the pin where the DHT11 is connected
 #define DHTTYPE DHT11 // Define the type of DHT sensor
+
+// DS18B20 sensor setup
+#define ONE_WIRE_BUS 27 // Define the pin where the DS18B20 is connected
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature ds18b20(&oneWire);
+float hydronicTemp = 0.0;
+bool hydronicHeatingEnabled = false;
+
+// Hydronic heating settings
+float hydronicTempLow = 120.0; // Default low temperature for hydronic heating
+float hydronicTempHigh = 130.0; // Default high temperature for hydronic heating
 
 // Globals
 DHT dht(DHTPIN, DHTTYPE);
@@ -168,6 +181,9 @@ void setup()
 
     // Initial display update
     updateDisplay(currentTemp, currentHumidity);
+
+    // Initialize the DS18B20 sensor
+    ds18b20.begin();
 }
 
 void loop()
@@ -243,6 +259,10 @@ void loop()
 
     // Control relays based on current temperature
     controlRelays(currentTemp);
+
+    // Read hydronic temperature
+    ds18b20.requestTemperatures();
+    hydronicTemp = ds18b20.getTempFByIndex(0);
 
     // delay(50); // Adjust delay as needed
 }
@@ -588,7 +608,7 @@ void publishHomeAssistantDiscovery()
     if (mqttEnabled)
     {
         char buffer[512];
-        StaticJsonDocument<512> doc;
+        JsonDocument doc;
         doc.clear();
 
         // Publish discovery message for thermostat
@@ -809,6 +829,19 @@ void controlRelays(float currentTemp)
             fanOn = false;
         }
     }    
+
+    // Hydronic heating logic
+    if (hydronicHeatingEnabled && heatingOn)
+    {
+        if (hydronicTemp < hydronicTempLow)
+        {
+            digitalWrite(fanRelayPin, LOW); // Turn off fan if hydronic temp is below low threshold
+        }
+        else if (hydronicTemp >= hydronicTempHigh)
+        {
+            digitalWrite(fanRelayPin, HIGH); // Turn on fan if hydronic temp is high threshold or above
+        }
+    }
 }
 
 void controlFanSchedule()
@@ -873,6 +906,9 @@ void handleWebRequests()
         html += "Use Fahrenheit: <input type='checkbox' name='useFahrenheit' " + String(useFahrenheit ? "checked" : "") + "><br>";
         html += "MQTT Enabled: <input type='checkbox' name='mqttEnabled' " + String(mqttEnabled ? "checked" : "") + "><br>";
         html += "Home Assistant Enabled: <input type='checkbox' name='homeAssistantEnabled' " + String(homeAssistantEnabled ? "checked" : "") + "><br>";
+        html += "Hydronic Heating Enabled: <input type='checkbox' name='hydronicHeatingEnabled' " + String(hydronicHeatingEnabled ? "checked" : "") + "><br>"; // Add hydronic heating option
+        html += "Hydronic Temp Low: <input type='text' name='hydronicTempLow' value='" + String(hydronicTempLow) + "'><br>"; // Add hydronic temp low input
+        html += "Hydronic Temp High: <input type='text' name='hydronicTempHigh' value='" + String(hydronicTempHigh) + "'><br>"; // Add hydronic temp high input
         html += "Fan Minutes Per Hour: <input type='text' name='fanMinutesPerHour' value='" + String(fanMinutesPerHour) + "'><br>";
         html += "Home Assistant URL: <input type='text' name='homeAssistantUrl' value='" + homeAssistantUrl + "'><br>";
         html += "Home Assistant API Key: <input type='text' name='homeAssistantApiKey' value='" + homeAssistantApiKey + "'><br>";
@@ -951,6 +987,17 @@ void handleWebRequests()
         }
         if (request->hasParam("homeAssistantEnabled", true)) {
             homeAssistantEnabled = request->getParam("homeAssistantEnabled", true)->value() == "on";
+        }
+        if (request->hasParam("hydronicHeatingEnabled", true)) {
+            hydronicHeatingEnabled = request->getParam("hydronicHeatingEnabled", true)->value() == "on"; // Handle hydronic heating option
+        } else {
+            hydronicHeatingEnabled = false; // Ensure hydronicHeatingEnabled is set to false if not present in the form
+        }
+        if (request->hasParam("hydronicTempLow", true)) {
+            hydronicTempLow = request->getParam("hydronicTempLow", true)->value().toFloat(); // Handle hydronic temp low
+        }
+        if (request->hasParam("hydronicTempHigh", true)) {
+            hydronicTempHigh = request->getParam("hydronicTempHigh", true)->value().toFloat(); // Handle hydronic temp high
         }
         if (request->hasParam("fanMinutesPerHour", true)) {
             fanMinutesPerHour = request->getParam("fanMinutesPerHour", true)->value().toInt();
@@ -1183,6 +1230,9 @@ void saveSettings()
     preferences.putString("fanMode", fanMode);
     preferences.putString("timeZone", timeZone); // Save time zone
     preferences.putBool("use24HourClock", use24HourClock); // Save clock format
+    preferences.putBool("hydroHeatEn", hydronicHeatingEnabled); // Shortened key
+    preferences.putFloat("hydroTempLow", hydronicTempLow); // Save hydronic low temperature
+    preferences.putFloat("hydroTempHigh", hydronicTempHigh); // Save hydronic high temperature
 
     saveWiFiSettings();
 
@@ -1213,6 +1263,9 @@ void loadSettings()
     fanMode = preferences.getString("fanMode", "auto");
     timeZone = preferences.getString("timeZone", "CST6CDT,M3.2.0,M11.1.0"); // Load time zone
     use24HourClock = preferences.getBool("use24HourClock", true); // Load clock format
+    hydronicHeatingEnabled = preferences.getBool("hydroHeatEn", false); // Shortened key
+    hydronicTempLow = preferences.getFloat("hydroTempLow", 120.0); // Load hydronic low temperature
+    hydronicTempHigh = preferences.getFloat("hydroTempHigh", 130.0); // Load hydronic high temperature
 
     // Debug print to confirm settings are loaded
     Serial.println("Settings loaded.");
@@ -1394,6 +1447,7 @@ void restoreDefaultSettings()
     fanMode = "auto";
     timeZone = "CST6CDT,M3.2.0,M11.1.0"; // Reset time zone to default
     use24HourClock = true; // Reset clock format to default
+    hydronicHeatingEnabled = false; // Reset hydronic heating setting to default
 
     saveSettings();
 

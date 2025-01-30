@@ -1,0 +1,9 @@
+compile:
+  platforms:
+    - uno
+  libraries:
+    - "OneWire"
+skip_unittest: true
+
+aux_libraries_for_ci:
+  - "OneWire"
