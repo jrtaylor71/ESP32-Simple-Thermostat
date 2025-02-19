@@ -1432,7 +1432,7 @@ void loadSettings()
     mqttPassword = preferences.getString("mqttPass", "your_password"); // Shortened key
     wifiSSID = preferences.getString("wifiSSID", "");
     wifiPassword = preferences.getString("wifiPass", ""); // Shortened key
-    thermostatMode = preferences.getString("thermoMode", "off"); // Shortened key
+    thermostatMode = preferences.getString("thermoMode", "off"); // Ensure correct default value
     fanMode = preferences.getString("fanMode", "auto");
     timeZone = preferences.getString("timeZone", "CST6CDT,M3.2.0,M11.1.0"); // Load time zone
     use24HourClock = preferences.getBool("use24HourClock", true); // Load clock format
