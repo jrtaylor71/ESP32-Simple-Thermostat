@@ -604,7 +604,7 @@ void handleButtonPress(uint16_t x, uint16_t y)
 void setupMQTT()
 {
     mqttClient.setServer(mqttServer.c_str(), mqttPort);
-    mqttClient.setBufferSize(512); // Increase buffer size for larger messages
+    mqttClient.setBufferSize(1024); // Ensure buffer size is sufficient for large payloads
     mqttClient.setCallback(mqttCallback);
 }
 
@@ -616,15 +616,13 @@ void reconnectMQTT()
         if (mqttClient.connect("ESP32Thermostat", mqttUsername.c_str(), mqttPassword.c_str()))
         {
             Serial.println("connected");
-            // Subscribe to topics
-            mqttClient.subscribe("thermostat/setTempHeat");
-            mqttClient.subscribe("thermostat/setTempCool");
-            mqttClient.subscribe("thermostat/tempSwing");
-            mqttClient.subscribe("thermostat/thermostatMode");
-            mqttClient.subscribe("thermostat/fanMode");
-            mqttClient.subscribe("thermostat/availability"); // Subscribe to availability topic
 
-            // Publish Home Assistant MQTT discovery messages
+            // Subscribe to necessary topics
+            mqttClient.subscribe("esp32_thermostat/target_temperature/set");
+            mqttClient.subscribe("esp32_thermostat/mode/set");
+            mqttClient.subscribe("esp32_thermostat/fan_mode/set");
+
+            // Publish Home Assistant discovery messages
             publishHomeAssistantDiscovery();
         }
         else
@@ -641,148 +639,111 @@ void publishHomeAssistantDiscovery()
 {
     if (mqttEnabled)
     {
-        char buffer[512];
-        // IMPORTANT: Use StaticJsonDocument<512> to ensure compatibility with Home Assistant
-        StaticJsonDocument<512> doc;
+        char buffer[1024];
+        StaticJsonDocument<1024> doc;
 
-        // Publish discovery message for thermostat
-        String thermostatConfig = "homeassistant/climate/esp32_thermostat/config";
+        // Publish discovery message for the thermostat device
+        String configTopic = "homeassistant/climate/esp32_thermostat/config";
         doc["name"] = "ESP32 Thermostat";
         doc["unique_id"] = "esp32_thermostat";
-        doc["current_temperature_topic"] = "thermostat/currentTemp";
-        doc["temperature_command_topic"] = "thermostat/setTempHeat";
-        doc["temperature_state_topic"] = "thermostat/setTempHeat";
-        doc["mode_command_topic"] = "thermostat/thermostatMode";
-        doc["mode_state_topic"] = "thermostat/thermostatMode";
-        doc["availability_topic"] = "thermostat/availability";
+        doc["current_temperature_topic"] = "esp32_thermostat/current_temperature";
+        doc["current_humidity_topic"] = "esp32_thermostat/current_humidity";
+        doc["temperature_command_topic"] = "esp32_thermostat/target_temperature/set";
+        doc["temperature_state_topic"] = "esp32_thermostat/target_temperature";
+        doc["mode_command_topic"] = "esp32_thermostat/mode/set";
+        doc["mode_state_topic"] = "esp32_thermostat/mode";
+        doc["fan_mode_command_topic"] = "esp32_thermostat/fan_mode/set";
+        doc["fan_mode_state_topic"] = "esp32_thermostat/fan_mode";
+        doc["availability_topic"] = "esp32_thermostat/availability";
+        doc["min_temp"] = 50; // Minimum temperature in Fahrenheit
+        doc["max_temp"] = 90; // Maximum temperature in Fahrenheit
+        doc["temp_step"] = 0.5; // Temperature step
+
         JsonArray modes = doc.createNestedArray("modes");
         modes.add("off");
         modes.add("heat");
         modes.add("cool");
         modes.add("auto");
-        doc["fan_mode_command_topic"] = "thermostat/fanMode";
-        doc["fan_mode_state_topic"] = "thermostat/fanMode";
-        JsonArray fan_modes = doc.createNestedArray("fan_modes");
-        fan_modes.add("auto");
-        fan_modes.add("on");
-        serializeJson(doc, buffer);
-        mqttClient.publish(thermostatConfig.c_str(), buffer, true);
 
-        // Publish discovery message for humidity sensor
-        String humidityConfig = "homeassistant/sensor/esp32_humidity/config";
-        doc.clear();
-        doc["name"] = "ESP32 Humidity";
-        doc["unique_id"] = "esp32_humidity";
-        doc["state_topic"] = "thermostat/currentHumidity";
-        doc["unit_of_measurement"] = "%";
-        doc["availability_topic"] = "thermostat/availability";
+        JsonArray fanModes = doc.createNestedArray("fan_modes");
+        fanModes.add("auto");
+        fanModes.add("on");
+
+        JsonObject device = doc.createNestedObject("device");
+        device["identifiers"] = "esp32_thermostat";
+        device["name"] = "ESP32 Thermostat";
+        device["manufacturer"] = "ESP32";
+        device["model"] = "Simple Thermostat";
+        device["sw_version"] = "1.0.0";
+
         serializeJson(doc, buffer);
-        mqttClient.publish(humidityConfig.c_str(), buffer, true);
+        mqttClient.publish(configTopic.c_str(), buffer, true);
 
         // Publish availability message
-        mqttClient.publish("thermostat/availability", "online", true);
+        mqttClient.publish("esp32_thermostat/availability", "online", true);
+
+        // Debug log for payload
+        Serial.println("Published Home Assistant discovery payload:");
+        Serial.println(buffer);
     }
     else
     {
         // Remove all entities by publishing empty payloads
         mqttClient.publish("homeassistant/climate/esp32_thermostat/config", "");
-        mqttClient.publish("homeassistant/sensor/esp32_humidity/config", "");
-        mqttClient.publish("thermostat/availability", "offline", true);
+        mqttClient.publish("esp32_thermostat/availability", "offline", true);
     }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length)
 {
-    if (handlingMQTTMessage) return; // Prevent handling messages while processing another
-
-    unsigned long currentTime = millis();
-    if (mqttCallbackActive || (currentTime - lastMQTTMessageTime < mqttDebounceTime)) return;
-
-    mqttCallbackActive = true;
-    lastMQTTMessageTime = currentTime;
-
     String message;
     for (unsigned int i = 0; i < length; i++)
     {
         message += (char)payload[i];
     }
+
     Serial.print("Message arrived [");
     Serial.print(topic);
     Serial.print("] ");
     Serial.println(message);
 
-    bool valueChanged = false;
-
-    handlingMQTTMessage = true; // Set the flag to indicate we are handling an MQTT message
-
-    if (String(topic) == "thermostat/setTempHeat")
-    {
-        float newSetTempHeat = message.toFloat();
-        if (newSetTempHeat != setTempHeat)
-        {
-            setTempHeat = newSetTempHeat;
-            if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
-            {
-                setTempCool = setTempHeat + tempDifferential;
-                // Do not publish back to MQTT here
-            }
-            valueChanged = true;
-            tempHeatChanged = true;
-        }
-    }
-    else if (String(topic) == "thermostat/setTempCool")
-    {
-        float newSetTempCool = message.toFloat();
-        if (newSetTempCool != setTempCool)
-        {
-            setTempCool = newSetTempCool;
-            if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
-            {
-                setTempHeat = setTempCool - tempDifferential;
-                // Do not publish back to MQTT here
-            }
-            valueChanged = true;
-            tempCoolChanged = true;
-        }
-    }
-    else if (String(topic) == "thermostat/tempSwing")
-    {
-        float newTempSwing = message.toFloat();
-        if (newTempSwing != tempSwing)
-        {
-            tempSwing = newTempSwing;
-            valueChanged = true;
-            tempSwingChanged = true;
-        }
-    }
-    else if (String(topic) == "thermostat/thermostatMode")
+    if (String(topic) == "esp32_thermostat/mode/set")
     {
         if (message != thermostatMode)
         {
             thermostatMode = message;
-            valueChanged = true;
-            thermostatModeChanged = true;
+            Serial.print("Updated thermostat mode to: ");
+            Serial.println(thermostatMode);
+            controlRelays(currentTemp); // Apply changes to relays
         }
     }
-    else if (String(topic) == "thermostat/fanMode")
+    else if (String(topic) == "esp32_thermostat/fan_mode/set")
     {
         if (message != fanMode)
         {
             fanMode = message;
-            valueChanged = true;
-            fanModeChanged = true;
+            Serial.print("Updated fan mode to: ");
+            Serial.println(fanMode);
+            controlRelays(currentTemp); // Apply changes to relays
         }
     }
-
-    if (valueChanged)
+    else if (String(topic) == "esp32_thermostat/target_temperature/set")
     {
-        settingsChanged = true;
-        saveSettings();
-        settingsChanged = false;
+        float newTargetTemp = message.toFloat();
+        if (thermostatMode == "heat" && newTargetTemp != setTempHeat)
+        {
+            setTempHeat = newTargetTemp;
+            Serial.print("Updated heating target temperature to: ");
+            Serial.println(setTempHeat);
+        }
+        else if (thermostatMode == "cool" && newTargetTemp != setTempCool)
+        {
+            setTempCool = newTargetTemp;
+            Serial.print("Updated cooling target temperature to: ");
+            Serial.println(setTempCool);
+        }
+        controlRelays(currentTemp); // Apply changes to relays
     }
-
-    handlingMQTTMessage = false; // Reset the flag after handling the message
-    mqttCallbackActive = false;
 }
 
 void sendMQTTData()
@@ -790,48 +751,53 @@ void sendMQTTData()
     static float lastTemp = 0.0;
     static float lastHumidity = 0.0;
     static float lastSetTempHeat = 0.0;
-    static float lastSetTempCool = 0.0;
-    static float lastTempSwing = 0.0;
     static String lastThermostatMode = "";
     static String lastFanMode = "";
 
     if (mqttClient.connected())
     {
-        if (currentTemp != lastTemp)
+        // Publish current temperature
+        if (!isnan(currentTemp) && currentTemp != lastTemp)
         {
-            mqttClient.publish("thermostat/currentTemp", String(currentTemp).c_str());
+            mqttClient.publish("esp32_thermostat/current_temperature", String(currentTemp).c_str(), true);
             lastTemp = currentTemp;
         }
-        if (currentHumidity != lastHumidity)
+
+        // Publish current humidity
+        if (!isnan(currentHumidity) && currentHumidity != lastHumidity)
         {
-            mqttClient.publish("thermostat/currentHumidity", String(currentHumidity).c_str());
+            mqttClient.publish("esp32_thermostat/current_humidity", String(currentHumidity).c_str(), true);
             lastHumidity = currentHumidity;
         }
-        if (setTempHeat != lastSetTempHeat)
+
+        // Publish target temperature (set temperature for heating or cooling)
+        if (thermostatMode == "heat" && setTempHeat != lastSetTempHeat)
         {
-            mqttClient.publish("thermostat/setTempHeat", String(setTempHeat).c_str());
+            mqttClient.publish("esp32_thermostat/target_temperature", String(setTempHeat).c_str(), true);
             lastSetTempHeat = setTempHeat;
         }
-        if (setTempCool != lastSetTempCool)
+        else if (thermostatMode == "cool" && setTempHeat != lastSetTempHeat)
         {
-            mqttClient.publish("thermostat/setTempCool", String(setTempCool).c_str());
-            lastSetTempCool = setTempCool;
+            mqttClient.publish("esp32_thermostat/target_temperature", String(setTempCool).c_str(), true);
+            lastSetTempHeat = setTempCool;
         }
-        if (tempSwing != lastTempSwing)
-        {
-            mqttClient.publish("thermostat/tempSwing", String(tempSwing).c_str());
-            lastTempSwing = tempSwing;
-        }
+
+        // Publish thermostat mode
         if (thermostatMode != lastThermostatMode)
         {
-            mqttClient.publish("thermostat/thermostatMode", thermostatMode.c_str());
+            mqttClient.publish("esp32_thermostat/mode", thermostatMode.c_str(), true);
             lastThermostatMode = thermostatMode;
         }
+
+        // Publish fan mode
         if (fanMode != lastFanMode)
         {
-            mqttClient.publish("thermostat/fanMode", fanMode.c_str());
+            mqttClient.publish("esp32_thermostat/fan_mode", fanMode.c_str(), true);
             lastFanMode = fanMode;
         }
+
+        // Publish availability
+        mqttClient.publish("esp32_thermostat/availability", "online", true);
     }
 }
 
