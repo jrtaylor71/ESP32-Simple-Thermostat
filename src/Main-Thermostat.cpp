@@ -70,6 +70,9 @@ String mqttUsername = "your_username";  // Replace with your MQTT username
 String mqttPassword = "your_password";  // Replace with your MQTT password
 String timeZone = "CST6CDT,M3.2.0,M11.1.0"; // Default time zone (Central Standard Time)
 
+// Add a preference for hostname
+String hostname = "ESP32-Simple-Thermostat"; // Default hostname
+
 bool heatingOn = false;
 bool coolingOn = false;
 bool fanOn = false;
@@ -275,10 +278,11 @@ void loop()
 
 void setupWiFi()
 {
+    hostname = preferences.getString("hostname", "ESP32-Simple-Thermostat"); // Load hostname from preferences
+    WiFi.setHostname(hostname.c_str()); // Set the WiFi device name
+
     wifiSSID = preferences.getString("wifiSSID", "");
     wifiPassword = preferences.getString("wifiPassword", "");
-
-    WiFi.setHostname("ESP32-Simple-Thermostat"); // Set the WiFi device name
 
     if (wifiSSID != "" && wifiPassword != "")
     {
@@ -517,7 +521,7 @@ void handleButtonPress(uint16_t x, uint16_t y)
     {
         if (thermostatMode == "heat" || thermostatMode == "auto")
         {
-            setTempHeat += 1.0;
+            setTempHeat += 0.5;
             if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
             {
                 setTempCool = setTempHeat + tempDifferential;
@@ -527,7 +531,7 @@ void handleButtonPress(uint16_t x, uint16_t y)
         }
         else if (thermostatMode == "cool")
         {
-            setTempCool += 1.0;
+            setTempCool += 0.5;
             if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
             {
                 setTempHeat = setTempCool - tempDifferential;
@@ -543,7 +547,7 @@ void handleButtonPress(uint16_t x, uint16_t y)
     {
         if (thermostatMode == "heat" || thermostatMode == "auto")
         {
-            setTempHeat -= 1.0;
+            setTempHeat -= 0.5;
             if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
             {
                 setTempCool = setTempHeat + tempDifferential;
@@ -553,7 +557,7 @@ void handleButtonPress(uint16_t x, uint16_t y)
         }
         else if (thermostatMode == "cool")
         {
-            setTempCool -= 1.0;
+            setTempCool -= 0.5;
             if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
             {
                 setTempHeat = setTempCool - tempDifferential;
@@ -613,8 +617,7 @@ void reconnectMQTT()
     while (!mqttClient.connected())
     {
         Serial.print("Attempting MQTT connection...");
-        if (mqttClient.connect("ESP32Thermostat", mqttUsername.c_str(), mqttPassword.c_str()))
-        {
+        if (mqttClient.connect(hostname.c_str(), mqttUsername.c_str(), mqttPassword.c_str())) {
             Serial.println("connected");
 
             // Subscribe to necessary topics
@@ -644,7 +647,7 @@ void publishHomeAssistantDiscovery()
 
         // Publish discovery message for the thermostat device
         String configTopic = "homeassistant/climate/esp32_thermostat/config";
-        doc["name"] = "ESP32 Thermostat";
+        doc["name"] = ""; // Use hostname instead of hardcoded name
         doc["unique_id"] = "esp32_thermostat";
         doc["current_temperature_topic"] = "esp32_thermostat/current_temperature";
         doc["current_humidity_topic"] = "esp32_thermostat/current_humidity";
@@ -671,8 +674,8 @@ void publishHomeAssistantDiscovery()
 
         JsonObject device = doc.createNestedObject("device");
         device["identifiers"] = "esp32_thermostat";
-        device["name"] = "ESP32 Thermostat";
-        device["manufacturer"] = "ESP32";
+        device["name"] = hostname;
+        device["manufacturer"] = "TDC";
         device["model"] = "Simple Thermostat";
         device["sw_version"] = "1.0.0";
 
@@ -1006,6 +1009,10 @@ void handleWebRequests()
         html += "<form action='/settings' method='GET'>";
         html += "<input type='submit' value='Settings'>";
         html += "</form>";
+        // Add a reboot button to the main page
+        html += "<form action='/reboot' method='POST'>";
+        html += "<input type='submit' value='Reboot'>";
+        html += "</form>";
         html += "</body></html>";
 
         request->send(200, "text/html", html);
@@ -1033,6 +1040,7 @@ void handleWebRequests()
         html += "MQTT Password: <input type='text' name='mqttPassword' value='" + mqttPassword + "'><br>";
         html += "WiFi SSID: <input type='text' name='wifiSSID' value='" + wifiSSID + "'><br>";
         html += "WiFi Password: <input type='text' name='wifiPassword' value='" + wifiPassword + "'><br>";
+        html += "Hostname: <input type='text' name='hostname' value='" + hostname + "'><br>";
         html += "Clock Format: <select name='clockFormat'>";
         html += "<option value='24' " + String(use24HourClock ? "selected" : "") + ">24-hour</option>";
         html += "<option value='12' " + String(!use24HourClock ? "selected" : "") + ">12-hour</option>";
@@ -1172,6 +1180,9 @@ void handleWebRequests()
                 wifiPassword = newWifiPassword; // Update wifiPassword only if a new one is provided
             }
         }
+        if (request->hasParam("hostname", true)) {
+            hostname = request->getParam("hostname", true)->value(); // Ensure hostname is updated correctly
+        }
         if (request->hasParam("clockFormat", true)) {
             use24HourClock = request->getParam("clockFormat", true)->value() == "24";
         }
@@ -1269,6 +1280,13 @@ void handleWebRequests()
         saveSettings();
         sendMQTTData();
         request->send(200, "application/json", "{\"status\": \"success\"}");
+    });
+
+    server.on("/reboot", HTTP_POST, [](AsyncWebServerRequest *request)
+              {
+        request->send(200, "text/plain", "Rebooting...");
+        delay(1000);
+        ESP.restart();
     });
 }
 
@@ -1375,6 +1393,7 @@ void saveSettings()
     preferences.putBool("hydroHeatEn", hydronicHeatingEnabled); // Shortened key
     preferences.putFloat("hydroTempLow", hydronicTempLow); // Save hydronic low temperature
     preferences.putFloat("hydroTempHigh", hydronicTempHigh); // Save hydronic high temperature
+    preferences.putString("hostname", hostname); // Save hostname
 
     saveWiFiSettings();
 
@@ -1405,6 +1424,7 @@ void loadSettings()
     hydronicHeatingEnabled = preferences.getBool("hydroHeatEn", false); // Shortened key
     hydronicTempLow = preferences.getFloat("hydroTempLow", 120.0); // Load hydronic low temperature
     hydronicTempHigh = preferences.getFloat("hydroTempHigh", 130.0); // Load hydronic high temperature
+    hostname = preferences.getString("hostname", "ESP32-Simple-Thermostat"); // Load hostname
 
     // Debug print to confirm settings are loaded
     Serial.println("Settings loaded.");
@@ -1544,6 +1564,7 @@ void restoreDefaultSettings()
     timeZone = "CST6CDT,M3.2.0,M11.1.0"; // Reset time zone to default
     use24HourClock = true; // Reset clock format to default
     hydronicHeatingEnabled = false; // Reset hydronic heating setting to default
+    hostname = "ESP32-Simple-Thermostat"; // Reset hostname to default
 
     saveSettings();
 
