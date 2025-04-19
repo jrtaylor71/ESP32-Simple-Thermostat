@@ -50,6 +50,7 @@ const int fanRelayPin = 25;
 float setTempHeat = 72.0; // Default set temperature for heating in Fahrenheit
 float setTempCool = 76.0; // Default set temperature for cooling in Fahrenheit
 float tempSwing = 1.0;
+float autoTempSwing = 3.0;
 bool autoChangeover = true;
 bool fanRelayNeeded = false;
 bool useFahrenheit = true; // Default to Fahrenheit
@@ -821,14 +822,14 @@ void controlRelays(float currentTemp)
     else if (autoChangeover)
     {
         // Auto changeover logic
-        if (currentTemp < setTempHeat - tempSwing)
+        if (currentTemp < setTempHeat - autoTempSwing)
         {
             digitalWrite(heatRelay1Pin, HIGH); // First stage heat
             heatingOn = true;
             coolingOn = false;
             if (fanRelayNeeded)
                 digitalWrite(fanRelayPin, HIGH);
-            if (currentTemp < setTempHeat - tempSwing - 1.0)
+            if (currentTemp < setTempHeat - autoTempSwing - 1.0)
             {
                 digitalWrite(heatRelay2Pin, HIGH); // Second stage heat
             }
@@ -837,14 +838,14 @@ void controlRelays(float currentTemp)
                 digitalWrite(heatRelay2Pin, LOW);
             }
         }
-        else if (currentTemp > setTempCool + tempSwing)
+        else if (currentTemp > setTempCool + autoTempSwing)
         {
             digitalWrite(coolRelay1Pin, HIGH); // First stage cool
             coolingOn = true;
             heatingOn = false;
             if (fanRelayNeeded)
                 digitalWrite(fanRelayPin, HIGH);
-            if (currentTemp > setTempCool + tempSwing + 1.0)
+            if (currentTemp > setTempCool + autoTempSwing + 1.0)
             {
                 digitalWrite(coolRelay2Pin, HIGH); // Second stage cool
             }
@@ -1023,10 +1024,21 @@ void handleWebRequests()
         String html = "<html><body>";
         html += "<h1>Thermostat Settings</h1>";
         html += "<form action='/set' method='POST'>";
+        html += "Thermostat Mode: <select name='thermostatMode'>";
+        html += "<option value='off'" + String(thermostatMode == "off" ? " selected" : "") + ">Off</option>";
+        html += "<option value='heat'" + String(thermostatMode == "heat" ? " selected" : "") + ">Heat</option>";
+        html += "<option value='cool'" + String(thermostatMode == "cool" ? " selected" : "") + ">Cool</option>";
+        html += "<option value='auto'" + String(thermostatMode == "auto" ? " selected" : "") + ">Auto</option>";
+        html += "</select><br>";
+        html += "Fan Mode: <select name='fanMode'>";
+        html += "<option value='auto'" + String(fanMode == "auto" ? " selected" : "") + ">Auto</option>";
+        html += "<option value='on'" + String(fanMode == "on" ? " selected" : "") + ">On</option>";
+        html += "</select><br>";
         html += "Set Temp Heat: <input type='text' name='setTempHeat' value='" + String(setTempHeat) + "'><br>";
         html += "Set Temp Cool: <input type='text' name='setTempCool' value='" + String(setTempCool) + "'><br>";
         html += "Temp Swing: <input type='text' name='tempSwing' value='" + String(tempSwing) + "'><br>";
-        // html += "Auto Changeover: <input type='checkbox' name='autoChangeover' " + String(autoChangeover ? "checked" : "") + "><br>";
+        html += "Auto Temp Swing: <input type='text' name='autoTempSwing' value='" + String(autoTempSwing) + "'><br>";
+//         html += "Auto Changeover: <input type='checkbox' name='autoChangeover' " + String(autoChangeover ? "checked" : "") + "><br>";
         html += "Fan Relay Needed: <input type='checkbox' name='fanRelayNeeded' " + String(fanRelayNeeded ? "checked" : "") + "><br>";
         html += "Use Fahrenheit: <input type='checkbox' name='useFahrenheit' " + String(useFahrenheit ? "checked" : "") + "><br>";
         html += "MQTT Enabled: <input type='checkbox' name='mqttEnabled' " + String(mqttEnabled ? "checked" : "") + "><br>";
@@ -1129,6 +1141,9 @@ void handleWebRequests()
         if (request->hasParam("tempSwing", true)) {
             tempSwing = request->getParam("tempSwing", true)->value().toFloat();
         }
+        if (request->hasParam("autoTempSwing", true)) {
+            autoTempSwing = request->getParam("autoTempSwing", true)->value().toFloat();
+        }
         if (request->hasParam("autoChangeover", true)) {
             autoChangeover = request->getParam("autoChangeover", true)->value() == "on";
         }
@@ -1190,6 +1205,12 @@ void handleWebRequests()
             timeZone = request->getParam("timeZone", true)->value();
             setenv("TZ", timeZone.c_str(), 1);
             tzset();
+        }
+        if (request->hasParam("thermostatMode", true)) {
+            thermostatMode = request->getParam("thermostatMode", true)->value();
+        }
+        if (request->hasParam("fanMode", true)) {
+            fanMode = request->getParam("fanMode", true)->value();
         }
 
         saveSettings();
@@ -1375,6 +1396,7 @@ void saveSettings()
     preferences.putFloat("setTempHeat", setTempHeat);
     preferences.putFloat("setTempCool", setTempCool);
     preferences.putFloat("tempSwing", tempSwing);
+    preferences.putFloat("autoTempSwing", autoTempSwing);
     preferences.putBool("autoChangeover", autoChangeover);
     preferences.putBool("fanRelayNeeded", fanRelayNeeded);
     preferences.putBool("useFahrenheit", useFahrenheit);
@@ -1406,6 +1428,7 @@ void loadSettings()
     setTempHeat = preferences.getFloat("setTempHeat", 72.0);
     setTempCool = preferences.getFloat("setTempCool", 76.0);
     tempSwing = preferences.getFloat("tempSwing", 1.0);
+    autoTempSwing = preferences.getFloat("autoTempSwing", 3.0);
     autoChangeover = preferences.getBool("autoChangeover", true);
     fanRelayNeeded = preferences.getBool("fanRelayNeeded", false);
     useFahrenheit = preferences.getBool("useFahrenheit", true);
@@ -1549,6 +1572,7 @@ void restoreDefaultSettings()
     setTempHeat = 72.0;
     setTempCool = 76.0;
     tempSwing = 1.0;
+    autoTempSwing = 3.0;
     autoChangeover = true;
     fanRelayNeeded = false;
     useFahrenheit = true;
