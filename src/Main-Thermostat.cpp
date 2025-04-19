@@ -92,6 +92,8 @@ String timeZone = "CST6CDT,M3.2.0,M11.1.0"; // Default time zone (Central Standa
 
 // Add a preference for hostname
 String hostname = "ESP32-Simple-Thermostat"; // Default hostname
+String sw_version = "1.0.0"; // Default software version
+
 
 bool heatingOn = false;
 bool coolingOn = false;
@@ -542,6 +544,8 @@ void handleButtonPress(uint16_t x, uint16_t y)
         if (thermostatMode == "heat" || thermostatMode == "auto")
         {
             setTempHeat += 0.5;
+            if (setTempHeat > 95) setTempHeat = 95;
+            if (setTempHeat < 50) setTempHeat = 50;
             if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
             {
                 setTempCool = setTempHeat + tempDifferential;
@@ -552,6 +556,8 @@ void handleButtonPress(uint16_t x, uint16_t y)
         else if (thermostatMode == "cool")
         {
             setTempCool += 0.5;
+            if (setTempCool > 95) setTempCool = 95;
+            if (setTempCool < 50) setTempCool = 50;
             if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
             {
                 setTempHeat = setTempCool - tempDifferential;
@@ -568,6 +574,8 @@ void handleButtonPress(uint16_t x, uint16_t y)
         if (thermostatMode == "heat" || thermostatMode == "auto")
         {
             setTempHeat -= 0.5;
+            if (setTempHeat > 95) setTempHeat = 95;
+            if (setTempHeat < 50) setTempHeat = 50;
             if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
             {
                 setTempCool = setTempHeat + tempDifferential;
@@ -578,6 +586,8 @@ void handleButtonPress(uint16_t x, uint16_t y)
         else if (thermostatMode == "cool")
         {
             setTempCool -= 0.5;
+            if (setTempCool > 95) setTempCool = 95;
+            if (setTempCool < 50) setTempCool = 50;
             if (thermostatMode == "auto" && setTempCool - setTempHeat < tempDifferential)
             {
                 setTempHeat = setTempCool - tempDifferential;
@@ -610,6 +620,8 @@ void handleButtonPress(uint16_t x, uint16_t y)
         // Change fan mode
         if (fanMode == "auto")
             fanMode = "on";
+        else if (fanMode == "on")
+            fanMode = "cycle";
         else
             fanMode = "auto";
 
@@ -691,13 +703,14 @@ void publishHomeAssistantDiscovery()
         JsonArray fanModes = doc.createNestedArray("fan_modes");
         fanModes.add("auto");
         fanModes.add("on");
+        fanModes.add("cycle");
 
         JsonObject device = doc.createNestedObject("device");
         device["identifiers"] = "esp32_thermostat";
         device["name"] = hostname;
         device["manufacturer"] = "TDC";
         device["model"] = "Simple Thermostat";
-        device["sw_version"] = "1.0.0";
+        device["sw_version"] = sw_version;
 
         serializeJson(doc, buffer);
         mqttClient.publish(configTopic.c_str(), buffer, true);
@@ -945,7 +958,12 @@ void controlRelays(float currentTemp)
             digitalWrite(fanRelayPin, LOW); // Turn off fan if not needed
             fanOn = false;
         }
-    }    
+    }
+    else if (fanMode == "cycle")
+    {
+        // Fan schedule will be handled in controlFanSchedule()
+        // Do not change fan relay here
+    }
 
     // Hydronic heating logic
     if (hydronicHeatingEnabled && heatingOn)
@@ -953,10 +971,14 @@ void controlRelays(float currentTemp)
         if (hydronicTemp < hydronicTempLow)
         {
             digitalWrite(fanRelayPin, LOW); // Turn off fan if hydronic temp is below low threshold
+            digitalWrite(heatRelay1Pin, LOW); // Turn off first stage heat
+            digitalWrite(heatRelay2Pin, LOW); // Turn off second stage heat
         }
         else if (hydronicTemp >= hydronicTempHigh)
         {
             digitalWrite(fanRelayPin, HIGH); // Turn on fan if hydronic temp is high threshold or above
+            digitalWrite(heatRelay1Pin, HIGH); // Turn on first stage heat
+            digitalWrite(heatRelay2Pin, HIGH); // Turn on second stage heat
         }
     }
 }
@@ -973,7 +995,7 @@ void controlFanSchedule()
         return; // Skip fan schedule during the first hour
     }
 
-    if (fanMode == "auto")
+    if (fanMode == "cycle")
     {
         unsigned long currentTime = millis();
         unsigned long elapsedTime = (currentTime - lastFanRunTime) / 1000; // Convert to seconds
@@ -1006,6 +1028,12 @@ void controlFanSchedule()
             fanRunDuration += elapsedTime;
         }
     }
+    // Retain auto mode for backward compatibility
+    else if (fanMode == "auto")
+    {
+        // No scheduled fan running in auto mode
+        // Optionally, you could keep the old schedule logic here if desired
+    }
 }
 
 void handleWebRequests()
@@ -1014,6 +1042,7 @@ void handleWebRequests()
     {
         String html = "<html><head><meta http-equiv='refresh' content='10'></head><body>"; // Changed refresh time to 10 seconds
         html += "<h1>Thermostat Status</h1>";
+        html += "<p>Firmware Version: " + sw_version + "</p>";
         html += "<p>Current Temperature: " + String(currentTemp) + (useFahrenheit ? " F" : " C") + "</p>";
         html += "<p>Current Humidity: " + String(currentHumidity) + " %</p>";
         if (hydronicHeatingEnabled) {
@@ -1052,6 +1081,7 @@ void handleWebRequests()
         html += "Fan Mode: <select name='fanMode'>";
         html += "<option value='auto'" + String(fanMode == "auto" ? " selected" : "") + ">Auto</option>";
         html += "<option value='on'" + String(fanMode == "on" ? " selected" : "") + ">On</option>";
+        html += "<option value='cycle'" + String(fanMode == "cycle" ? " selected" : "") + ">Cycle</option>";
         html += "</select><br>";
         html += "Set Temp Heat: <input type='text' name='setTempHeat' value='" + String(setTempHeat) + "'><br>";
         html += "Set Temp Cool: <input type='text' name='setTempCool' value='" + String(setTempCool) + "'><br>";
@@ -1153,9 +1183,13 @@ void handleWebRequests()
               {
         if (request->hasParam("setTempHeat", true)) {
             setTempHeat = request->getParam("setTempHeat", true)->value().toFloat();
+            if (setTempHeat < 50) setTempHeat = 50;
+            if (setTempHeat > 95) setTempHeat = 95;
         }
         if (request->hasParam("setTempCool", true)) {
             setTempCool = request->getParam("setTempCool", true)->value().toFloat();
+            if (setTempCool < 50) setTempCool = 50;
+            if (setTempCool > 95) setTempCool = 95;
         }
         if (request->hasParam("tempSwing", true)) {
             tempSwing = request->getParam("tempSwing", true)->value().toFloat();
@@ -1303,9 +1337,13 @@ void handleWebRequests()
               {
         if (request->hasParam("setTempHeat", true)) {
             setTempHeat = request->getParam("setTempHeat", true)->value().toFloat();
+            if (setTempHeat < 50) setTempHeat = 50;
+            if (setTempHeat > 95) setTempHeat = 95;
         }
         if (request->hasParam("setTempCool", true)) {
             setTempCool = request->getParam("setTempCool", true)->value().toFloat();
+            if (setTempCool < 50) setTempCool = 50;
+            if (setTempCool > 95) setTempCool = 95;
         }
         if (request->hasParam("tempSwing", true)) {
             tempSwing = request->getParam("tempSwing", true)->value().toFloat();
