@@ -49,6 +49,15 @@ bool hydronicHeatingEnabled = false;
 float hydronicTempLow = 120.0; // Default low temperature for hydronic heating
 float hydronicTempHigh = 130.0; // Default high temperature for hydronic heating
 
+// Hybrid staging settings
+unsigned long stage1MinRuntime = 300; // Default minimum runtime for first stage in seconds (5 minutes)
+float stage2TempDelta = 2.0; // Default temperature delta for second stage activation
+unsigned long stage1StartTime = 0; // Time when stage 1 was activated
+bool stage1Active = false; // Flag to track if stage 1 is active
+bool stage2Active = false; // Flag to track if stage 2 is active
+bool stage2HeatingEnabled = true; // Enable/disable 2nd stage heating
+bool stage2CoolingEnabled = true; // Enable/disable 2nd stage cooling
+
 // Globals
 DHT dht(DHTPIN, DHTTYPE);
 AsyncWebServer server(80);
@@ -930,6 +939,8 @@ void turnOffAllRelays()
     digitalWrite(coolRelay2Pin, LOW);
     digitalWrite(fanRelayPin, LOW);
     heatingOn = coolingOn = fanOn = false;
+    stage1Active = false; // Reset stage 1 active flag
+    stage2Active = false; // Reset stage 2 active flag
 }
 
 void activateHeating() {
@@ -939,28 +950,60 @@ void activateHeating() {
             digitalWrite(heatRelay1Pin, LOW);
             digitalWrite(heatRelay2Pin, LOW);
             heatingOn = false;
+            stage1Active = false;
+            stage2Active = false;
             return;
         } else if (hydronicTemp >= hydronicTempHigh) {
             // Resume heating if hydronic temperature is high enough
-            digitalWrite(heatRelay1Pin, HIGH);
-            digitalWrite(heatRelay2Pin, HIGH);
-            heatingOn = true;
-            return;
+            // Continue with normal heating logic below
         }
     }
 
-    // Default heating behavior if hydronic heating is not enabled
-    digitalWrite(heatRelay1Pin, HIGH);
+    // Default heating behavior with hybrid staging
     heatingOn = true;
     coolingOn = false;
+    
+    // Check if stage 1 is not active yet
+    if (!stage1Active) {
+        digitalWrite(heatRelay1Pin, HIGH); // Activate stage 1
+        stage1Active = true;
+        stage1StartTime = millis(); // Record the start time
+        stage2Active = false; // Ensure stage 2 is off initially
+    } 
+    // Check if it's time to activate stage 2 based on hybrid approach
+    else if (!stage2Active && 
+             ((millis() - stage1StartTime) / 1000 >= stage1MinRuntime) && // Minimum run time condition
+             (currentTemp < setTempHeat - tempSwing - stage2TempDelta) && // Temperature delta condition
+             stage2HeatingEnabled) { // Check if stage 2 heating is enabled
+        digitalWrite(heatRelay2Pin, HIGH); // Activate stage 2
+        stage2Active = true;
+    }
+    
     if (fanRelayNeeded) digitalWrite(fanRelayPin, HIGH);
 }
 
 void activateCooling()
 {
-    digitalWrite(coolRelay1Pin, HIGH);
+    // Default cooling behavior with hybrid staging
     coolingOn = true;
     heatingOn = false;
+    
+    // Check if stage 1 is not active yet
+    if (!stage1Active) {
+        digitalWrite(coolRelay1Pin, HIGH); // Activate stage 1
+        stage1Active = true;
+        stage1StartTime = millis(); // Record the start time
+        stage2Active = false; // Ensure stage 2 is off initially
+    } 
+    // Check if it's time to activate stage 2 based on hybrid approach
+    else if (!stage2Active && 
+            ((millis() - stage1StartTime) / 1000 >= stage1MinRuntime) && // Minimum run time condition
+            (currentTemp > setTempCool + tempSwing + stage2TempDelta) && // Temperature delta condition
+            stage2CoolingEnabled) { // Check if stage 2 cooling is enabled
+        digitalWrite(coolRelay2Pin, HIGH); // Activate stage 2
+        stage2Active = true;
+    }
+    
     if (fanRelayNeeded) digitalWrite(fanRelayPin, HIGH);
 }
 
@@ -1087,6 +1130,11 @@ void handleWebRequests()
         html += "Fan Relay Needed: <input type='checkbox' name='fanRelayNeeded' " + String(fanRelayNeeded ? "checked" : "") + "><br>";
         html += "Use Fahrenheit: <input type='checkbox' name='useFahrenheit' " + String(useFahrenheit ? "checked" : "") + "><br>";
         html += "MQTT Enabled: <input type='checkbox' name='mqttEnabled' " + String(mqttEnabled ? "checked" : "") + "><br>";
+        html += "Hybrid Staging Settings:<br>";
+        html += "Stage 1 Min Runtime (seconds): <input type='text' name='stage1MinRuntime' value='" + String(stage1MinRuntime) + "'><br>";
+        html += "Stage 2 Temp Delta: <input type='text' name='stage2TempDelta' value='" + String(stage2TempDelta) + "'><br>";
+        html += "Enable 2nd Stage Heating: <input type='checkbox' name='stage2HeatingEnabled' " + String(stage2HeatingEnabled ? "checked" : "") + "><br>";
+        html += "Enable 2nd Stage Cooling: <input type='checkbox' name='stage2CoolingEnabled' " + String(stage2CoolingEnabled ? "checked" : "") + "><br>";
         html += "Hydronic Heating Enabled: <input type='checkbox' name='hydronicHeatingEnabled' " + String(hydronicHeatingEnabled ? "checked" : "") + "><br>";
         html += "Hydronic Temp Low: <input type='text' name='hydronicTempLow' value='" + String(hydronicTempLow) + "'><br>";
         html += "Hydronic Temp High: <input type='text' name='hydronicTempHigh' value='" + String(hydronicTempHigh) + "'><br>";
@@ -1262,6 +1310,22 @@ void handleWebRequests()
         }
         if (request->hasParam("fanMode", true)) {
             fanMode = request->getParam("fanMode", true)->value();
+        }
+        if (request->hasParam("stage1MinRuntime", true)) {
+            stage1MinRuntime = request->getParam("stage1MinRuntime", true)->value().toInt();
+        }
+        if (request->hasParam("stage2TempDelta", true)) {
+            stage2TempDelta = request->getParam("stage2TempDelta", true)->value().toFloat();
+        }
+        if (request->hasParam("stage2HeatingEnabled", true)) {
+            stage2HeatingEnabled = request->getParam("stage2HeatingEnabled", true)->value() == "on";
+        } else {
+            stage2HeatingEnabled = false; // Ensure stage2HeatingEnabled is set to false if not present in the form
+        }
+        if (request->hasParam("stage2CoolingEnabled", true)) {
+            stage2CoolingEnabled = request->getParam("stage2CoolingEnabled", true)->value() == "on";
+        } else {
+            stage2CoolingEnabled = false; // Ensure stage2CoolingEnabled is set to false if not present in the form
         }
 
         saveSettings();
@@ -1525,6 +1589,10 @@ void saveSettings()
     Serial.print("hydronicTempLow: "); Serial.println(hydronicTempLow);
     Serial.print("hydronicTempHigh: "); Serial.println(hydronicTempHigh);
     Serial.print("hostname: "); Serial.println(hostname);
+    Serial.print("stage1MinRuntime: "); Serial.println(stage1MinRuntime);
+    Serial.print("stage2TempDelta: "); Serial.println(stage2TempDelta);
+    Serial.print("stage2HeatingEnabled: "); Serial.println(stage2HeatingEnabled);
+    Serial.print("stage2CoolingEnabled: "); Serial.println(stage2CoolingEnabled);
 
     preferences.putFloat("setHeat", setTempHeat);
     preferences.putFloat("setCool", setTempCool);
@@ -1550,7 +1618,11 @@ void saveSettings()
     preferences.putFloat("hydLow", hydronicTempLow);
     preferences.putFloat("hydHigh", hydronicTempHigh);
     preferences.putString("host", hostname);
-
+    preferences.putUInt("stg1MnRun", stage1MinRuntime);
+    preferences.putFloat("stg2Delta", stage2TempDelta);
+    preferences.putBool("stg2HeatEn", stage2HeatingEnabled);
+    preferences.putBool("stg2CoolEn", stage2CoolingEnabled);
+    
     saveWiFiSettings();
 
     // Debug print to confirm settings are saved
@@ -1583,7 +1655,12 @@ void loadSettings()
     hydronicTempLow = preferences.getFloat("hydLow", 120.0);
     hydronicTempHigh = preferences.getFloat("hydHigh", 130.0);
     hostname = preferences.getString("host", "ESP32-Simple-Thermostat");
-
+    stage1MinRuntime = preferences.getUInt("stg1MnRun", 300);
+    stage2TempDelta = preferences.getFloat("stg2Delta", 2.0);
+    stage2HeatingEnabled = preferences.getBool("stg2HeatEn", true);
+    stage2CoolingEnabled = preferences.getBool("stg2CoolEn", true);
+    
+    // Debug print to confirm settings are loaded
     Serial.println("Loading settings:");
     Serial.print("setTempHeat: "); Serial.println(setTempHeat);
     Serial.print("setTempCool: "); Serial.println(setTempCool);
@@ -1609,6 +1686,10 @@ void loadSettings()
     Serial.print("hydronicTempLow: "); Serial.println(hydronicTempLow);
     Serial.print("hydronicTempHigh: "); Serial.println(hydronicTempHigh);
     Serial.print("hostname: "); Serial.println(hostname);
+    Serial.print("stage1MinRuntime: "); Serial.println(stage1MinRuntime);
+    Serial.print("stage2TempDelta: "); Serial.println(stage2TempDelta);
+    Serial.print("stage2HeatingEnabled: "); Serial.println(stage2HeatingEnabled);
+    Serial.print("stage2CoolingEnabled: "); Serial.println(stage2CoolingEnabled);
 
     // Debug print to confirm settings are loaded
     Serial.print("Settings loaded.");
@@ -1755,6 +1836,8 @@ void restoreDefaultSettings()
     mqttPort = 1883; // Reset MQTT port default
     hydronicTempLow = 120.0; // Reset hydronic low temp
     hydronicTempHigh = 130.0; // Reset hydronic high temp
+    stage2HeatingEnabled = true; // Reset stage 2 heating enabled to default
+    stage2CoolingEnabled = true; // Reset stage 2 cooling enabled to default
 
     saveSettings();
 
