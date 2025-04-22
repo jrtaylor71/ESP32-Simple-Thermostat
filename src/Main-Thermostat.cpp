@@ -932,8 +932,24 @@ void turnOffAllRelays()
     heatingOn = coolingOn = fanOn = false;
 }
 
-void activateHeating()
-{
+void activateHeating() {
+    if (hydronicHeatingEnabled) {
+        if (hydronicTemp <= hydronicTempLow) {
+            // Pause heating if hydronic temperature is too low
+            digitalWrite(heatRelay1Pin, LOW);
+            digitalWrite(heatRelay2Pin, LOW);
+            heatingOn = false;
+            return;
+        } else if (hydronicTemp >= hydronicTempHigh) {
+            // Resume heating if hydronic temperature is high enough
+            digitalWrite(heatRelay1Pin, HIGH);
+            digitalWrite(heatRelay2Pin, HIGH);
+            heatingOn = true;
+            return;
+        }
+    }
+
+    // Default heating behavior if hydronic heating is not enabled
     digitalWrite(heatRelay1Pin, HIGH);
     heatingOn = true;
     coolingOn = false;
