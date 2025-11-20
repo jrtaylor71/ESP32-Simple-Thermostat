@@ -1,0 +1,44 @@
+Designator,Val,Package,Mid X,Mid Y,Rotation,Layer
+A1,ESP32_DevKit_V1_DOIT_30GPIOs,DOIT_ESP32_DEVKIT_30Pins,118.5506,-67.465,180.0,top
+C5,1000uF_50V,CP_Radial_D16.0mm_P7.50mm,144.7372,-74.0,0.0,top
+C6,100nF_Ceramic,C_Disc_D5.0mm_W2.5mm_P2.50mm,145.25,-59.5,180.0,top
+C8,470uF_10V,CP_Radial_D8.0mm_P3.50mm,86.75,-106.5,180.0,top
+C9,100nF_Ceramic,C_Disc_D5.0mm_W2.5mm_P2.50mm,87.5,-98.5,180.0,top
+D1,1N4007,D_DO-41_SOD81_P7.62mm_Horizontal,85.81,-37.0,0.0,top
+D2,1N4007,D_DO-41_SOD81_P7.62mm_Horizontal,85.81,-49.5,0.0,top
+D3,1N4007,D_DO-41_SOD81_P7.62mm_Horizontal,85.5,-62.0,0.0,top
+D4,1N4007,D_DO-41_SOD81_P7.62mm_Horizontal,85.5,-74.5,0.0,top
+D5,1N4007,D_DO-41_SOD81_P7.62mm_Horizontal,85.31,-88.0,0.0,top
+D6,1N4007,D_DO-41_SOD81_P7.62mm_Horizontal,77.19,-99.5,0.0,top
+D7,KBP210G,Diode_Bridge_KBP,145.095,-104.5,0.0,top
+D8,SS34,D_SMC,112.0,-108.0,90.0,top
+H1,MountingHole_M3_3.2mm_Pad,MountingHole_3.2mm_Pad,25.0,-31.5,0.0,top
+H2,MountingHole_M3_3.2mm_Pad,MountingHole_3.2mm_Pad,25.0,-114.0,0.0,top
+H3,MountingHole_M3_3.2mm_Pad,MountingHole_3.2mm_Pad,151.0,-114.0,0.0,top
+H4,MountingHole_M3_3.2mm_Pad,MountingHole_3.2mm_Pad,151.0,-31.5,0.0,top
+J1,External Relays,PinHeader_1x18_P2.54mm_Vertical,95.81,-62.15,0.0,top
+J2,Screw_Terminal_9_P3.50mm,"TerminalBlock_Phoenix_PT-1,5-9-3.5-H_1x09_P3.50mm_Horizontal",33.5,-48.0,-90.0,top
+J3,DS18B20,PinHeader_1x03_P2.54mm_Vertical,33.0,-72.96,0.0,top
+J4,3.2 lcd tft,PinSocket_1x14_P2.54mm_Vertical,66.0,-68.53,180.0,bottom
+K1,G5Q-1A,Relay_SPST_Omron-G5Q-1A,51.49,-37.33,0.0,top
+K2,G5Q-1A,Relay_SPST_Omron-G5Q-1A,51.49,-49.88,0.0,top
+K3,G5Q-1A,Relay_SPST_Omron-G5Q-1A,51.49,-62.43,0.0,top
+K4,G5Q-1A,Relay_SPST_Omron-G5Q-1A,51.49,-74.98,0.0,top
+K5,G5Q-1A,Relay_SPST_Omron-G5Q-1A,51.49,-87.53,0.0,top
+K6,G5Q-1A,Relay_SPST_Omron-G5Q-1A,51.49,-100.08,0.0,top
+L1,12uH_5.2A_1260,L_Bourns_SRR1260,99.65,-106.0,0.0,top
+Q1,2N2222A-TO92,TO-92_Inline_Wide_EBC,74.81,-37.0,0.0,top
+Q2,2N2222A-TO92,TO-92_Inline_Wide_EBC,74.81,-49.5,0.0,top
+Q3,2N2222A-TO92,TO-92_Inline_Wide_EBC,74.81,-62.0,0.0,top
+Q4,2N2222A-TO92,TO-92_Inline_Wide_EBC,74.81,-74.5,0.0,top
+Q5,2N2222A-TO92,TO-92_Inline_Wide_EBC,74.85,-87.0,0.0,top
+Q6,2N2222A-TO92,TO-92_Inline_Wide_EBC,67.0,-99.5,0.0,top
+R1,4.7k,R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal,79.81,-42.5,0.0,top
+R2,4.7k,R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal,79.81,-55.0,0.0,top
+R3,4.7k,R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal,79.81,-68.0,0.0,top
+R4,4.7k,R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal,79.81,-80.0,0.0,top
+R5,4.7k,R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal,79.73,-92.5,0.0,top
+R6,Resistor,R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal,72.0,-105.0,0.0,top
+R7,4.7k,R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal,38.0,-73.5,-90.0,top
+U2,LM2596S-5,TO-263-5_TabPin3,126.55,-107.225,0.0,top
+U3,DHT11,Aosong_DHT11_5.5x12.0_P2.54mm,31.5975,-106.0975,0.0,top

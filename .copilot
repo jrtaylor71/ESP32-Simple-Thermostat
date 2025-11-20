@@ -1,0 +1,298 @@
+# ESP32 Simple Thermostat - GitHub Copilot Configuration
+
+This file provides context and guidance for GitHub Copilot when working with the ESP32 Simple Thermostat project.
+
+## Project Context
+
+### Project Type
+This is an ESP32-based IoT thermostat project using PlatformIO and Arduino framework. The project combines:
+- Embedded C++ programming for ESP32 microcontroller
+- TFT LCD touch interface programming
+- MQTT communication for smart home integration
+- Web server implementation for configuration
+- Multi-stage HVAC control logic
+- Custom PCB design files (KiCad format)
+
+### Architecture Overview
+- **Platform**: ESP32 WROOM-32 development board
+- **Framework**: Arduino Core for ESP32
+- **IDE**: PlatformIO (VS Code extension)
+- **Display**: ILI9341 TFT LCD with resistive touch
+- **Sensors**: DHT11 (ambient temp/humidity), DS18B20 (water temperature)
+- **Communication**: WiFi, MQTT, HTTP web server
+- **Storage**: ESP32 Preferences (non-volatile memory)
+
+## Code Organization
+
+### Main Source File
+- `src/Main-Thermostat.cpp` - Single comprehensive source file (~2300 lines)
+- Contains all functionality: setup(), loop(), and supporting functions
+- Uses global variables for state management
+- Extensive serial debug output for troubleshooting
+
+### Key Programming Patterns
+
+#### State Management
+```cpp
+// Global state variables
+bool heatingOn = false;
+bool coolingOn = false;
+bool fanOn = false;
+String thermostatMode = "off"; // "off", "heat", "cool", "auto"
+String fanMode = "auto"; // "auto", "on", "cycle"
+```
+
+#### Settings Persistence
+```cpp
+// Preferences library for non-volatile storage
+Preferences preferences;
+preferences.putFloat("setHeat", setTempHeat);
+preferences.putString("thermoMd", thermostatMode);
+```
+
+#### Touch Interface Handling
+```cpp
+// Touch detection and button press handling
+uint16_t x, y;
+if (tft.getTouch(&x, &y)) {
+    handleButtonPress(x, y);
+}
+```
+
+#### MQTT Integration
+```cpp
+// PubSubClient for MQTT communication
+void mqttCallback(char* topic, byte* payload, unsigned int length);
+void sendMQTTData(); // Publish sensor data
+void publishHomeAssistantDiscovery(); // Auto-discovery
+```
+
+## Function Categories
+
+### Display Functions
+- `updateDisplay()` - Main display update routine
+- `drawButtons()` - Render touch interface buttons
+- `drawKeyboard()` - WiFi setup keyboard interface
+- `handleButtonPress()` - Process touch input
+- `calibrateTouchScreen()` - Touch calibration routine
+
+### HVAC Control Functions
+- `controlRelays()` - Main thermostat control logic
+- `activateHeating()` - Multi-stage heating control
+- `activateCooling()` - Multi-stage cooling control
+- `handleFanControl()` - Fan operation management
+- `controlFanSchedule()` - Scheduled fan cycling
+- `turnOffAllRelays()` - Safety shutdown
+
+### Communication Functions
+- `setupMQTT()` - MQTT client initialization
+- `reconnectMQTT()` - MQTT connection management
+- `mqttCallback()` - Handle incoming MQTT commands
+- `sendMQTTData()` - Publish status and sensor data
+- `handleWebRequests()` - Web server route handlers
+- `setupWiFi()` - WiFi connection management
+
+### Configuration Functions
+- `saveSettings()` - Persistent storage of all settings
+- `loadSettings()` - Load settings from flash memory
+- `restoreDefaultSettings()` - Factory reset functionality
+- `saveWiFiSettings()` - WiFi credential storage
+
+### Utility Functions
+- `convertCtoF()` - Temperature unit conversion
+- `enterWiFiCredentials()` - Touch-based WiFi setup
+- `handleKeyPress()` - Virtual keyboard input
+
+## Key Variables and Constants
+
+### Temperature Settings
+```cpp
+float setTempHeat = 72.0;    // Heating setpoint (°F)
+float setTempCool = 76.0;    // Cooling setpoint (°F) 
+float setTempAuto = 74.0;    // Auto mode setpoint (°F)
+float tempSwing = 1.0;       // Standard hysteresis (°F)
+float autoTempSwing = 3.0;   // Auto mode hysteresis (°F)
+```
+
+### Hardware Pin Definitions
+```cpp
+// TFT Display pins
+#define TFT_MISO 19, TFT_MOSI 23, TFT_SCLK 18
+#define TFT_CS 15, TFT_DC 2, TFT_RST -1, TOUCH_CS 4
+
+// Sensor pins  
+#define DHTPIN 22, #define ONE_WIRE_BUS 27
+
+// Relay control pins
+const int heatRelay1Pin = 13, heatRelay2Pin = 12
+const int coolRelay1Pin = 14, coolRelay2Pin = 26
+const int fanRelayPin = 25
+```
+
+### MQTT Configuration
+```cpp
+String mqttServer = "0.0.0.0";
+int mqttPort = 1883;
+String mqttUsername = "mqtt";
+String mqttPassword = "password";
+```
+
+## Development Guidelines
+
+### Code Style
+- Use camelCase for variables and functions
+- Global variables for state management
+- Extensive serial debug output: `Serial.println("Debug message");`
+- Use `String` class for text handling (Arduino style)
+- Boolean flags for state tracking (heatingOn, coolingOn, etc.)
+
+### Error Handling
+- Check for NaN values from sensors: `if (!isnan(newTemp))`
+- Validate MQTT connections before publishing
+- Use watchdog timer for system stability: `esp_task_wdt_reset();`
+- Graceful degradation when WiFi/MQTT unavailable
+
+### Memory Management
+- Use Preferences library for non-volatile storage
+- Avoid dynamic memory allocation where possible
+- Use static buffers for JSON serialization
+- Clear display areas before updating: `tft.fillRect()`
+
+### Touch Interface Best Practices
+- Implement touch debouncing to prevent double-taps
+- Use clear visual feedback for button presses
+- Provide adequate button sizes for reliable touch detection
+- Include keyboard interface for text input
+
+## Common Development Tasks
+
+### Adding New Settings
+1. Add global variable declaration
+2. Add to `saveSettings()` function with preferences key
+3. Add to `loadSettings()` function with default value
+4. Add to web interface HTML forms
+5. Add to web handler parameter processing
+6. Add to `restoreDefaultSettings()` function
+
+### Extending MQTT Functionality
+1. Add new topics to `publishHomeAssistantDiscovery()`
+2. Handle new command topics in `mqttCallback()`
+3. Publish new status data in `sendMQTTData()`
+4. Test with Home Assistant integration
+
+### Adding Display Elements
+1. Update `updateDisplay()` function
+2. Handle display area clearing with `tft.fillRect()`
+3. Consider display update frequency and performance
+4. Add touch handling if interactive element
+
+### PCB Modifications
+- KiCad project files in `ESP32-Simple-Thermostat-PCB/`
+- Schematic: `.kicad_sch` file
+- PCB Layout: `.kicad_pcb` file
+- Manufacturing files in `jlcpcb/` subfolder
+
+## Testing and Debugging
+
+### Serial Debug Output
+- Extensive logging throughout code
+- Monitor at 115200 baud rate
+- Key debug points: settings load/save, MQTT, relay control
+- Temperature sensor readings and validity checks
+
+### Web Interface Testing
+- Status page for real-time monitoring
+- Settings page for configuration verification
+- JSON API endpoints for programmatic testing
+- OTA update interface for firmware deployment
+
+### MQTT Testing
+- Use MQTT client to monitor published topics
+- Send test commands to subscribed topics
+- Verify Home Assistant auto-discovery functionality
+- Check availability and status reporting
+
+## Hardware Integration Notes
+
+### Sensor Integration
+- DHT11: Simple digital sensor, check for NaN readings
+- DS18B20: OneWire protocol, check for device presence
+- Both sensors can fail, implement graceful error handling
+
+### Relay Control
+- Active HIGH relay control (HIGH = relay ON)
+- Include safety shutdowns and interlocks
+- Multi-stage operation with timing controls
+- Fan control integration with heating/cooling
+
+### Display Integration
+- ILI9341 TFT: SPI communication, hardware-specific pin assignments
+- Touch calibration stored in preferences
+- Button layout defined in drawButtons() function
+- Color-coded status indicators for system state
+
+### Power Considerations
+- ESP32 development board with USB power
+- 5V relay board compatibility
+- Stable power supply essential for reliable operation
+- Consider power consumption in always-on applications
+
+## File Structure Guide
+
+```
+ESP32-Simple-Thermostat/
+├── src/
+│   └── Main-Thermostat.cpp     # Main source code
+├── ESP32-Simple-Thermostat-PCB/ # KiCad PCB files
+│   ├── *.kicad_sch             # Schematic files
+│   ├── *.kicad_pcb             # PCB layout files
+│   └── jlcpcb/                 # Manufacturing files
+├── img/                        # Project images
+├── platformio.ini              # PlatformIO configuration
+├── README.md                   # Basic project info
+└── DOCUMENTATION.md            # Comprehensive documentation
+```
+
+## Dependencies and Libraries
+
+### Core Libraries (platformio.ini)
+```ini
+lib_deps = 
+    WiFi                        # ESP32 WiFi connectivity
+    ESP Async WebServer         # Non-blocking web server
+    PubSubClient               # MQTT client
+    TFT_eSPI                   # TFT display control
+    DHT sensor library         # DHT11 sensor support
+    DallasTemperature          # DS18B20 sensor support
+    bblanchon/ArduinoJson@^7.3.0 # JSON parsing
+    OneWire                    # OneWire protocol
+    Preferences                # Non-volatile storage
+```
+
+### Library Configuration Notes
+- TFT_eSPI requires hardware-specific configuration
+- PubSubClient buffer size increased for large payloads
+- ArduinoJson version pinned for stability
+- ESP Async WebServer handles concurrent connections
+
+## Troubleshooting Common Issues
+
+### Compilation Issues
+- Verify all libraries are properly installed
+- Check pin definitions match hardware configuration
+- Ensure proper ESP32 board selection in PlatformIO
+- Review build flags for warning suppression
+
+### Runtime Issues
+- Monitor serial output for debug information
+- Check WiFi connectivity and MQTT broker availability
+- Verify sensor connections and readings
+- Test touch screen calibration and responsiveness
+
+### Integration Issues
+- Confirm MQTT topic structure matches Home Assistant expectations
+- Verify relay connections and HVAC system compatibility
+- Check power supply stability and grounding
+- Test web interface accessibility across network
+
+This copilot configuration provides comprehensive context for AI-assisted development while maintaining the project's existing architecture and coding patterns.

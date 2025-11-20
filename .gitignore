@@ -1,0 +1,52 @@
+# PlatformIO build directories
+.pio/
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+
+# Compiled firmware
+*.bin
+*.elf
+*.hex
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# KiCad backup files
+*-bak
+*-cache.lib
+*-cache.dcm
+*.bak
+*.tmp
+*~
+_autosave-*
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+*.kicad_pcb-bak
+*.sch-bak
+fp-info-cache
+*.kicad_prl
+#auto_saved_files#
+~*.lck
+
+# PCB manufacturing files can be included or excluded as needed
+# Uncomment the next line if you don't want to track gerber files
+# jlcpcb/

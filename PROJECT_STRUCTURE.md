@@ -1,0 +1,206 @@
+# ESP32 Simple Thermostat - Project Structure
+
+This document provides an overview of the project structure and organization.
+
+## 📁 Project Directory Structure
+
+```
+ESP32-Simple-Thermostat/
+├── 📄 README.md                          # Project overview and quick start guide
+├── 📄 DOCUMENTATION.md                   # Comprehensive technical documentation
+├── 📄 .copilot                          # GitHub Copilot configuration and context
+├── 📄 PROJECT_STRUCTURE.md              # This file - project organization guide
+├── 📄 platformio.ini                    # PlatformIO build configuration
+├── 📄 ESP32-Simple-Thermostat.code-workspace # VS Code workspace settings
+│
+├── 📁 src/                              # Source code directory
+│   └── 📄 Main-Thermostat.cpp          # Main application source (~2300 lines)
+│
+├── 📁 ESP32-Simple-Thermostat-PCB/     # Custom PCB design files
+│   ├── 📄 ESP32-Simple-Thermostat-PCB.kicad_sch    # KiCad schematic file
+│   ├── 📄 ESP32-Simple-Thermostat-PCB.kicad_pcb    # KiCad PCB layout file
+│   ├── 📄 ESP32-Simple-Thermostat-PCB.kicad_pro    # KiCad project file
+│   ├── 📄 ESP32-Simple-Thermostat-PCB.kicad_prl    # KiCad local settings
+│   ├── 📄 fp-info-cache                            # KiCad footprint cache
+│   ├── 📁 jlcpcb/                                  # Manufacturing files
+│   │   ├── 📁 gerber/                              # Gerber files for PCB fab
+│   │   │   ├── 📄 ESP32-Simple-Thermostat-PCB-CuTop.gbr
+│   │   │   ├── 📄 ESP32-Simple-Thermostat-PCB-CuBottom.gbr
+│   │   │   ├── 📄 ESP32-Simple-Thermostat-PCB-SilkTop.gbr
+│   │   │   ├── 📄 ESP32-Simple-Thermostat-PCB-SilkBottom.gbr
+│   │   │   ├── 📄 ESP32-Simple-Thermostat-PCB-MaskTop.gbr
+│   │   │   ├── 📄 ESP32-Simple-Thermostat-PCB-MaskBottom.gbr
+│   │   │   ├── 📄 ESP32-Simple-Thermostat-PCB-EdgeCuts.gbr
+│   │   │   ├── 📄 ESP32-Simple-Thermostat-PCB-PTH.drl
+│   │   │   └── 📄 ESP32-Simple-Thermostat-PCB-NPTH.drl
+│   │   └── 📁 production_files/                    # Assembly files
+│   │       ├── 📄 BOM-ESP32-Simple-Thermostat-PCB.csv  # Bill of Materials
+│   │       └── 📄 CPL-ESP32-Simple-Thermostat-PCB.csv  # Component Placement
+│   └── 📁 #auto_saved_files#                       # KiCad auto-save files
+│
+└── 📁 img/                              # Project images and screenshots
+    ├── 📄 IMG_20250501_151129758.png    # Hardware photo
+    ├── 📄 web-status.png                # Web interface status page
+    ├── 📄 web-settings.png              # Web interface settings page
+    └── 📄 Screenshot*.png               # Additional screenshots
+```
+
+## 📋 File Descriptions
+
+### Core Project Files
+
+#### `README.md`
+- Project overview and introduction
+- Quick start guide and setup instructions
+- Key features and capabilities overview
+- Hardware requirements and pin configurations
+- Web interface screenshots
+- Home Assistant integration guide
+
+#### `DOCUMENTATION.md`
+- Comprehensive technical documentation
+- Detailed architecture explanation
+- Complete function reference
+- Hardware integration guide
+- Troubleshooting and maintenance
+- Development and customization guide
+
+#### `.copilot`
+- GitHub Copilot configuration file
+- Provides AI context for development assistance
+- Code patterns and architectural guidance
+- Development guidelines and best practices
+- Common tasks and troubleshooting
+
+#### `platformio.ini`
+- PlatformIO build configuration
+- Library dependencies specification
+- Build flags and compiler settings
+- ESP32 platform and board configuration
+- Serial monitor settings
+
+### Source Code
+
+#### `src/Main-Thermostat.cpp`
+- Single comprehensive source file (~2300 lines)
+- Contains complete thermostat implementation
+- Organized into logical function groups:
+  - **Setup & Configuration**: `setup()`, `loadSettings()`, `saveSettings()`
+  - **Main Loop**: `loop()` with non-blocking task management
+  - **Display Management**: `updateDisplay()`, `drawButtons()`, touch handling
+  - **HVAC Control**: `controlRelays()`, staging logic, fan control
+  - **Communication**: MQTT, WiFi, web server handlers
+  - **User Interface**: Touch keyboard, button handling
+  - **Utilities**: Temperature conversion, calibration, factory reset
+
+### PCB Design Files
+
+#### KiCad Design Files
+- **`.kicad_sch`**: Complete schematic design
+- **`.kicad_pcb`**: Professional 4-layer PCB layout
+- **`.kicad_pro`**: Project configuration and design rules
+- **`.kicad_prl`**: Local project settings
+
+#### Manufacturing Files (`jlcpcb/`)
+- **Gerber Files**: Industry-standard PCB fabrication files
+  - Copper layers (top/bottom)
+  - Solder mask layers
+  - Silkscreen layers
+  - Board outline (edge cuts)
+- **Drill Files**: Via and hole placement
+  - PTH (Plated Through Holes)
+  - NPTH (Non-Plated Through Holes)
+- **Production Files**: Assembly documentation
+  - BOM (Bill of Materials) for component sourcing
+  - CPL (Component Placement List) for pick-and-place assembly
+
+### Documentation Images
+
+#### Hardware Photos
+- `IMG_20250501_151129758.png`: Development board setup photo
+
+#### Web Interface Screenshots
+- `web-status.png`: Real-time status monitoring page
+- `web-settings.png`: Configuration interface page
+- Additional screenshots showing various system states
+
+## 🔧 Development Workflow
+
+### Getting Started
+1. **Clone Repository**: `git clone <repository-url>`
+2. **Open in PlatformIO**: Load project in VS Code with PlatformIO extension
+3. **Install Dependencies**: PlatformIO automatically installs libraries from `platformio.ini`
+4. **Build Project**: PlatformIO Build (Ctrl+Alt+B)
+5. **Upload Firmware**: PlatformIO Upload (Ctrl+Alt+U)
+
+### Development Tools
+- **Primary IDE**: VS Code with PlatformIO extension
+- **PCB Design**: KiCad 6.0 or later
+- **Version Control**: Git (GitHub repository)
+- **Serial Monitor**: PlatformIO Serial Monitor (115200 baud)
+- **MQTT Testing**: MQTT.fx, MQTT Explorer, or similar client
+
+### Code Organization Strategy
+- **Single Source File**: Simplifies deployment and compilation
+- **Function Grouping**: Related functions organized together
+- **Global State**: State variables declared at file scope
+- **Extensive Logging**: Serial debug output throughout
+- **Modular Functions**: Each major feature in dedicated functions
+
+## 📚 Learning Resources
+
+### Understanding the Codebase
+1. **Start with `README.md`**: Get project overview and setup
+2. **Review `DOCUMENTATION.md`**: Understand architecture and features
+3. **Study `.copilot`**: Learn development patterns and guidelines
+4. **Examine `Main-Thermostat.cpp`**: Follow code organization and logic flow
+
+### Key Code Sections to Study
+1. **`setup()` Function**: Initialization sequence and hardware setup
+2. **`loop()` Function**: Main task scheduling and state management
+3. **`controlRelays()`**: Core thermostat control logic
+4. **`updateDisplay()`**: User interface and display management
+5. **MQTT Functions**: Smart home integration implementation
+
+### PCB Design Learning
+1. **Open KiCad Files**: Study schematic and PCB layout
+2. **Review Manufacturing Files**: Understand production process
+3. **Analyze BOM**: Component selection and sourcing
+4. **Study Layout**: Professional PCB design techniques
+
+## 🚀 Extension Points
+
+### Code Extensibility
+- **Additional Sensors**: Add support for more sensor types
+- **New Display Elements**: Extend UI with additional information
+- **Enhanced MQTT**: Add more Home Assistant entities
+- **Scheduling**: Implement time-based temperature schedules
+- **Data Logging**: Add historical data collection
+
+### Hardware Extensions
+- **Outdoor Temperature**: Weather compensation sensor
+- **Multiple Zones**: Support for multi-zone HVAC systems
+- **Energy Monitoring**: Power consumption tracking
+- **Backup Display**: Secondary display for system status
+
+### PCB Modifications
+- **Component Updates**: Newer/alternative component footprints
+- **Connector Changes**: Different terminal block options
+- **Additional I/O**: More relay outputs or sensor inputs
+- **Form Factor**: Different board sizes or mounting options
+
+## 🔍 Troubleshooting File Locations
+
+### Debug Information Sources
+- **Serial Output**: Connect to ESP32 USB port at 115200 baud
+- **Web Interface**: Status page shows real-time system state
+- **MQTT Topics**: Monitor published topics for communication issues
+- **Preferences Storage**: Settings stored in ESP32 flash memory
+
+### Common File Issues
+- **Compilation Errors**: Check `platformio.ini` library versions
+- **Upload Failures**: Verify ESP32 connection and drivers
+- **Display Problems**: Review TFT_eSPI library configuration
+- **PCB Files**: Ensure KiCad version compatibility
+
+This project structure provides a solid foundation for both learning and extending the ESP32 Smart Thermostat system. Each file serves a specific purpose in the overall architecture, making the project maintainable and extensible.
