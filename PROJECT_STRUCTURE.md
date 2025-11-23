@@ -6,15 +6,27 @@ This document provides an overview of the project structure and organization.
 
 ```
 ESP32-Simple-Thermostat/
-├── 📄 README.md                          # Project overview and quick start guide
-├── 📄 DOCUMENTATION.md                   # Comprehensive technical documentation
+├── 📄 README.md                          # Project overview and quick start guide (UPDATED)
+├── 📄 DOCUMENTATION.md                   # Comprehensive technical documentation (UPDATED)
+├── 📄 CURRENT_STATE.md                   # Current project status and deployment info (NEW)
+├── 📄 PIN_CONFIGURATION.md               # Complete pin reference guide (NEW)
+├── 📄 BACKPORT_README.md                 # Backport summary from ESP32-S3 (UPDATED)
+├── 📄 BACKPORT_GUIDE.md                  # Backport implementation guide (UPDATED)
+├── 📄 DEVELOPMENT_GUIDE.md               # Development and contribution guide
 ├── 📄 .copilot                          # GitHub Copilot configuration and context
 ├── 📄 PROJECT_STRUCTURE.md              # This file - project organization guide
-├── 📄 platformio.ini                    # PlatformIO build configuration
+├── 📄 platformio.ini                    # PlatformIO build configuration (backported)
+├── 📄 platformio-basic.ini              # Backup of backported configuration
 ├── 📄 ESP32-Simple-Thermostat.code-workspace # VS Code workspace settings
+├── 📄 firmware.bin                      # Compiled firmware (generated)
 │
 ├── 📁 src/                              # Source code directory
-│   └── 📄 Main-Thermostat.cpp          # Main application source (~2300 lines)
+│   └── 📄 Main-Thermostat.cpp          # Main application source (~3742 lines, backported)
+│
+├── 📁 include/                          # Header files
+│   ├── 📄 WebInterface.h               # Web server route handlers (backported)
+│   ├── 📄 WebPages.h                   # HTML templates for web UI (backported)
+│   └── 📄 TFT_Setup_ESP32_S3_Thermostat.h # TFT config (reference only)
 │
 ├── 📁 ESP32-Simple-Thermostat-PCB/     # Custom PCB design files
 │   ├── 📄 ESP32-Simple-Thermostat-PCB.kicad_sch    # KiCad schematic file
@@ -49,21 +61,66 @@ ESP32-Simple-Thermostat/
 
 ### Core Project Files
 
-#### `README.md`
+#### `README.md` (UPDATED)
 - Project overview and introduction
+- Backport status from ESP32-S3 firmware
 - Quick start guide and setup instructions
 - Key features and capabilities overview
 - Hardware requirements and pin configurations
 - Web interface screenshots
 - Home Assistant integration guide
 
-#### `DOCUMENTATION.md`
+#### `DOCUMENTATION.md` (UPDATED)
 - Comprehensive technical documentation
+- Backport changes and modifications
 - Detailed architecture explanation
 - Complete function reference
 - Hardware integration guide
 - Troubleshooting and maintenance
 - Development and customization guide
+- Version history with backport information
+
+#### `CURRENT_STATE.md` (NEW)
+- Current project status and readiness
+- Complete backport summary
+- Compilation results and memory usage
+- Full pin configuration table
+- Software features retained/removed
+- Deployment instructions
+- Testing checklist
+- Known working configuration
+
+#### `PIN_CONFIGURATION.md` (NEW)
+- Quick reference pin table
+- Detailed wiring instructions
+- SPI bus sharing explanation
+- PWM channel usage
+- GPIO restrictions and notes
+- Troubleshooting guide
+- Testing procedures
+- Schematic reference
+
+#### `BACKPORT_README.md` (UPDATED)
+- Summary of backport from ESP32-S3
+- Hardware changes and removals
+- Pin configuration for ESP32-WROOM
+- Software features retained
+- Installation instructions
+- Memory usage statistics
+
+#### `BACKPORT_GUIDE.md` (UPDATED)
+- Detailed backport implementation
+- Files copied and modified
+- Key code changes made
+- Functions removed/commented
+- Sensor changes (AHT20 → DHT11)
+- Installation completion status
+
+#### `DEVELOPMENT_GUIDE.md`
+- Development and contribution guidelines
+- Code style and conventions
+- Testing procedures
+- Pull request process
 
 #### `.copilot`
 - GitHub Copilot configuration file
@@ -72,26 +129,56 @@ ESP32-Simple-Thermostat/
 - Development guidelines and best practices
 - Common tasks and troubleshooting
 
-#### `platformio.ini`
-- PlatformIO build configuration
-- Library dependencies specification
-- Build flags and compiler settings
-- ESP32 platform and board configuration
+#### `platformio.ini` (BACKPORTED)
+- PlatformIO build configuration for ESP32-WROOM
+- Library dependencies (DHT sensor library)
+- Build flags for TFT_eSPI
+- Pin definitions via build flags
 - Serial monitor settings
+
+#### `platformio-basic.ini`
+- Backup/reference copy of backported configuration
+- Original backport source file
 
 ### Source Code
 
-#### `src/Main-Thermostat.cpp`
-- Single comprehensive source file (~2300 lines)
+#### `src/Main-Thermostat.cpp` (BACKPORTED)
+- Single comprehensive source file (~3742 lines)
+- Backported from Smart Thermostat Alt Firmware v1.1.0 (ESP32-S3)
 - Contains complete thermostat implementation
+- Hardware features commented out (LEDs, buzzer, light sensor, motion sensor)
+- Sensor changed from AHT20 to DHT11
+- Added pump relay control
 - Organized into logical function groups:
   - **Setup & Configuration**: `setup()`, `loadSettings()`, `saveSettings()`
   - **Main Loop**: `loop()` with non-blocking task management
   - **Display Management**: `updateDisplay()`, `drawButtons()`, touch handling
-  - **HVAC Control**: `controlRelays()`, staging logic, fan control
+  - **HVAC Control**: `controlRelays()`, staging logic, fan control, pump control
   - **Communication**: MQTT, WiFi, web server handlers
-  - **User Interface**: Touch keyboard, button handling
+  - **Scheduling**: 7-day schedule system with day/night periods
+  - **User Interface**: Touch keyboard, button handling, tabbed web interface
   - **Utilities**: Temperature conversion, calibration, factory reset
+
+### Header Files
+
+#### `include/WebInterface.h` (BACKPORTED)
+- Web server route handlers
+- HTTP endpoint definitions
+- JSON API responses
+- OTA update handling
+- Advanced tabbed interface backend
+
+#### `include/WebPages.h` (BACKPORTED)
+- HTML templates for web UI
+- Modern tabbed interface design
+- Status, Settings, Schedule, and System tabs
+- JavaScript for dynamic updates
+- CSS styling embedded
+
+#### `include/TFT_Setup_ESP32_S3_Thermostat.h`
+- Original ESP32-S3 TFT configuration
+- Reference only (not actively used)
+- Pin definitions overridden by platformio.ini
 
 ### PCB Design Files
 

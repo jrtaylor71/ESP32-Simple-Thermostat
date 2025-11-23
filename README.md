@@ -1,6 +1,6 @@
-# ESP32 Smart Thermostat
+# ESP32 Simple Thermostat
 
-A comprehensive, feature-rich smart thermostat system built on the ESP32 platform with professional PCB design. Perfect for DIY smart home automation with full Home Assistant integration.
+A comprehensive, feature-rich thermostat system built on the ESP32 platform with professional PCB design. Perfect for DIY smart home automation with full Home Assistant integration.
 
 ![Thermostat Display](https://github.com/jrtaylor71/ESP32-Simple-Thermostat/blob/main/img/IMG_20250501_151129758.png)
 
@@ -17,14 +17,34 @@ A comprehensive, feature-rich smart thermostat system built on the ESP32 platfor
 - **🔄 OTA Updates**: Over-the-air firmware updates
 - **🔒 Factory Reset**: Built-in reset capability via boot button
 
+## 📦 Backport Status
+
+This firmware is backported from **Smart Thermostat Alt Firmware v1.1.0** (ESP32-S3) to ESP32-WROOM hardware.
+
+**Removed Features:**
+- LD2410 motion sensor (display wake)
+- Status LEDs (heat/cool/fan indicators)
+- Buzzer/audio feedback
+- Light sensor (adaptive brightness)
+
+**Retained Features:**
+- ✅ 7-day scheduling system
+- ✅ Modern tabbed web interface
+- ✅ MQTT/Home Assistant integration
+- ✅ Multi-stage HVAC control
+- ✅ Hydronic heating with pump control
+- ✅ Touch-based display wake
+- ✅ OTA firmware updates
+- ✅ All software improvements from v1.1.0
+
 ## 🚀 Quick Start
 
 ### Hardware Requirements
 - ESP32 WROOM-32 Development Board
 - ILI9341 320x240 TFT LCD Touch Display
-- DHT11 Temperature/Humidity Sensor
+- DHT11 Temperature/Humidity Sensor (digital pin)
 - DS18B20 Temperature Sensor (optional, for hydronic heating)
-- 5x Relay Module for HVAC control
+- 6x Relay Module (5 HVAC + 1 hydronic pump)
 - Custom PCB (files included) or breadboard for prototyping
 
 ### Software Setup
@@ -36,14 +56,15 @@ A comprehensive, feature-rich smart thermostat system built on the ESP32 platfor
 
 ### Pin Configuration
 
-#### TFT Display
+#### TFT Display (ILI9341)
 ```cpp
 #define TFT_MISO 19    // SPI MISO
 #define TFT_MOSI 23    // SPI MOSI
 #define TFT_SCLK 18    // SPI Clock
 #define TFT_CS   15    // Chip Select
 #define TFT_DC    2    // Data/Command
-#define TFT_RST  -1    // Reset (connected to ESP32 reset)
+#define TFT_RST   5    // Reset
+#define TFT_BL   32    // Backlight (PWM)
 #define TOUCH_CS  4    // Touch Chip Select
 ```
 
@@ -60,6 +81,7 @@ const int heatRelay2Pin = 12;   // Stage 2 heating
 const int coolRelay1Pin = 14;   // Stage 1 cooling
 const int coolRelay2Pin = 26;   // Stage 2 cooling
 const int fanRelayPin = 25;     // Fan control
+const int pumpRelayPin = 33;    // Hydronic pump control
 ```
 
 ## 💻 Web Interface
@@ -67,7 +89,7 @@ const int fanRelayPin = 25;     // Fan control
 Access the thermostat's web interface by navigating to its IP address:
 
 ### Status Page
-![Web Status](https://github.com/jrtaylor71/ESP32-Simple-Thermostat/blob/main/img/web-status.png)
+![Web Status]()
 
 Real-time monitoring of:
 - Current temperature and humidity
@@ -76,7 +98,7 @@ Real-time monitoring of:
 - System status
 
 ### Settings Page
-![Web Settings](https://github.com/jrtaylor71/ESP32-Simple-Thermostat/blob/main/img/web-settings.png)
+![Web Settings]()
 
 Complete configuration interface for:
 - Temperature setpoints and control modes
@@ -179,11 +201,14 @@ Contributions welcome! Please:
 
 ## ⭐ Version
 
-**Current Version**: 1.0.3
+**Current Version**: 1.1.0 (Backported from ESP32-S3)
+- Backported from Smart Thermostat Alt Firmware v1.1.0
 - Complete thermostat functionality
-- MQTT/Home Assistant integration
-- Professional PCB design
-- Multi-stage HVAC support
+- MQTT/Home Assistant integration with auto-discovery
+- 7-day scheduling system
+- Multi-stage HVAC support with hydronic pump
+- DHT11 sensor support
+- Professional PCB design (original hardware)
 - Web interface and OTA updates
 
 ---

@@ -1,5 +1,60 @@
 # ESP32 Simple Thermostat - Complete Documentation
 
+## Backport Status
+
+This firmware has been backported from **Smart Thermostat Alt Firmware v1.1.0** (originally for ESP32-S3) to ESP32-WROOM DevKit v1 hardware.
+
+### Hardware Changes from Original ESP32-S3 Version
+
+**Removed Hardware:**
+- LD2410 Motion Sensor (UART-based presence detection)
+- Status LEDs (Heat/Cool/Fan RGB indicators with PWM)
+- Buzzer (Audio feedback)
+- Light Sensor (Photocell for adaptive brightness)
+
+**Sensor Changes:**
+- Changed from AHT20 (I2C) to DHT11 (digital single-pin)
+- Maintained DS18B20 OneWire sensor for hydronic temperature
+
+**Hardware Additions:**
+- Added dedicated pump relay (GPIO 33) for hydronic system control
+- TFT backlight control on GPIO 32 (PWM)
+
+**Pin Reassignments:**
+- Updated all GPIO assignments for ESP32-WROOM compatibility
+- Removed I2C dependencies (no longer needed without AHT20)
+- Optimized pin layout to avoid conflicts
+
+### Software Features Retained
+
+✅ **All Advanced Features Maintained:**
+- 7-day scheduling system with day/night periods
+- Modern tabbed web interface (Status, Settings, Schedule, System)
+- MQTT integration with Home Assistant auto-discovery
+- Multi-stage HVAC control with intelligent staging
+- Hydronic heating support with safety interlocks
+- Advanced fan control (Auto, On, Cycle modes)
+- Temperature calibration and offset settings
+- Display sleep/wake (touch-based, no motion sensor)
+- OTA firmware updates
+- Factory reset capability
+- Dual-core FreeRTOS architecture
+- Comprehensive web configuration
+- Persistent settings storage
+
+**Code Modifications:**
+- Commented out LED control functions (setHeatLED, setCoolLED, setFanLED)
+- Commented out buzzer functions (buzzerBeep, buzzerStartupTone)
+- Commented out light sensor functions (readLightSensor, updateDisplayBrightness)
+- Commented out LD2410 motion sensor functions and MQTT discovery
+- Replaced all AHT20 sensor code with DHT11 equivalents
+- Removed Wire.h I2C library dependency
+
+### Memory Usage
+- **Flash**: 78.1% (1,023,273 bytes / 1,310,720 bytes)
+- **RAM**: 14.9% (48,708 bytes / 327,680 bytes)
+- Compilation successful with no errors
+
 ## Project Overview
 
 The ESP32 Simple Thermostat is a comprehensive, feature-rich smart thermostat system built on the ESP32 platform. It combines local touch control with remote MQTT/Home Assistant integration, making it suitable for both standalone operation and smart home environments.
@@ -20,10 +75,11 @@ The ESP32 Simple Thermostat is a comprehensive, feature-rich smart thermostat sy
 
 ### Main Components
 - **ESP32 WROOM-32 Development Kit**: Main microcontroller
-- **ILI9341 TFT LCD Touch Screen**: 320x240 pixel display with resistive touch
-- **DHT11 Sensor**: Temperature and humidity measurement
-- **DS18B20 Sensor**: Water/hydronic temperature measurement (optional)
-- **5x Relay Outputs**: Control for heating, cooling, and fan systems
+- **ILI9341 TFT LCD Touch Screen**: 320x240 pixel display with resistive touch 
+    https://www.lcdwiki.com/3.2inch_SPI_Module_ILI9341_SKU:MSP3218
+- **DHT11 Sensor**: Temperature and humidity measurement (digital, single-pin)
+- **DS18B20 Sensor**: Water/hydronic temperature measurement (optional, OneWire)
+- **6x Relay Outputs**: Control for heating, cooling, fan, and pump systems
 
 ### Pin Configuration
 
@@ -34,14 +90,15 @@ The ESP32 Simple Thermostat is a comprehensive, feature-rich smart thermostat sy
 #define TFT_SCLK 18    // SPI Clock
 #define TFT_CS   15    // Chip Select
 #define TFT_DC    2    // Data/Command
-#define TFT_RST  -1    // Reset (connected to ESP32 reset)
+#define TFT_RST   5    // Reset
+#define TFT_BL   32    // Backlight (PWM control)
 #define TOUCH_CS  4    // Touch Chip Select
 ```
 
 #### Sensor Connections
 ```cpp
-#define DHTPIN 22           // DHT11 data pin
-#define ONE_WIRE_BUS 27     // DS18B20 data pin
+#define DHTPIN 22           // DHT11 data pin (digital)
+#define ONE_WIRE_BUS 27     // DS18B20 data pin (OneWire)
 ```
 
 #### Relay Outputs
@@ -51,6 +108,7 @@ const int heatRelay2Pin = 12;   // Stage 2 heating
 const int coolRelay1Pin = 14;   // Stage 1 cooling
 const int coolRelay2Pin = 26;   // Stage 2 cooling
 const int fanRelayPin = 25;     // Fan control
+const int pumpRelayPin = 33;    // Hydronic pump control
 ```
 
 #### Control Input
@@ -379,8 +437,24 @@ Located in `ESP32-Simple-Thermostat-PCB/jlcpcb/`:
 
 ## Version History
 
-### Version 1.0.3 (Current)
-- Complete thermostat functionality
+### Version 1.1.0 (Current - Backported)
+- Backported from Smart Thermostat Alt Firmware v1.1.0 (ESP32-S3)
+- DHT11 sensor support (replaced AHT20 I2C)
+- Added hydronic pump relay on GPIO 33
+- Removed hardware features: LEDs, buzzer, light sensor, motion sensor
+- Retained all software features and improvements
+- TFT backlight control on GPIO 32
+- Pin configuration optimized for ESP32-WROOM
+- 7-day scheduling system
+- Modern tabbed web interface
+- MQTT/Home Assistant integration with auto-discovery
+- Multi-stage HVAC support
+- Touch-based display wake (no motion sensor)
+- Factory reset capability
+- OTA update support
+
+### Version 1.0.3 (Original)
+- Initial complete thermostat functionality
 - MQTT/Home Assistant integration
 - Multi-stage HVAC support
 - Hydronic heating compatibility
