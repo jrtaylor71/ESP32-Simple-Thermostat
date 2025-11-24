@@ -17,26 +17,6 @@ A comprehensive, feature-rich thermostat system built on the ESP32 platform with
 - **🔄 OTA Updates**: Over-the-air firmware updates
 - **🔒 Factory Reset**: Built-in reset capability via boot button
 
-## 📦 Backport Status
-
-This firmware is backported from **Smart Thermostat Alt Firmware v1.1.0** (ESP32-S3) to ESP32-WROOM hardware.
-
-**Removed Features:**
-- LD2410 motion sensor (display wake)
-- Status LEDs (heat/cool/fan indicators)
-- Buzzer/audio feedback
-- Light sensor (adaptive brightness)
-
-**Retained Features:**
-- ✅ 7-day scheduling system
-- ✅ Modern tabbed web interface
-- ✅ MQTT/Home Assistant integration
-- ✅ Multi-stage HVAC control
-- ✅ Hydronic heating with pump control
-- ✅ Touch-based display wake
-- ✅ OTA firmware updates
-- ✅ All software improvements from v1.1.0
-
 ## 🚀 Quick Start
 
 ### Hardware Requirements
@@ -201,16 +181,13 @@ Contributions welcome! Please:
 
 ## ⭐ Version
 
-**Current Version**: 1.1.0 (Backported from ESP32-S3)
-- Backported from Smart Thermostat Alt Firmware v1.1.0
+**Current Version**: 1.1.0
 - Complete thermostat functionality
 - MQTT/Home Assistant integration with auto-discovery
 - 7-day scheduling system
 - Multi-stage HVAC support with hydronic pump
 - DHT11 sensor support
-- Professional PCB design (original hardware)
+- PCB design
 - Web interface and OTA updates
 
 ---
-
-**Created for the DIY smart home community**
