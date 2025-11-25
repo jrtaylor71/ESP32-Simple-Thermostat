@@ -197,7 +197,7 @@ String timeZone = "CST6CDT,M3.2.0,M11.1.0"; // Default time zone (Central Standa
 String hostname = "ESP32-Simple-Thermostat"; // Default hostname
 
 // Version control information
-const String sw_version = "1.1.0"; // Software version
+const String sw_version = "1.2.0"; // Software version
 const String build_date = __DATE__;  // Compile date
 const String build_time = __TIME__;  // Compile time
 String version_info = sw_version + " (" + build_date + " " + build_time + ")";
@@ -260,6 +260,7 @@ bool tempSwingChanged = false;
 bool thermostatModeChanged = false;
 bool fanModeChanged = false;
 bool handlingMQTTMessage = false; // Add this flag
+volatile bool mqttFeedbackNeeded = false; // Flag to trigger immediate MQTT update on HA setting changes
 
 // Add declarations to support hydronic temperature display and sensor error checking
 float previousHydronicTemp = 0.0;
@@ -379,6 +380,13 @@ void sensorTaskFunction(void *parameter) {
                 // Invalid reading - keep last valid reading, don't update
                 Serial.println("[WARNING] DS18B20 sensor reading failed or disconnected");
             }
+        }
+        
+        // Check if MQTT feedback is needed (HA setting changed) and send immediately
+        if (mqttFeedbackNeeded) {
+            Serial.println("[MQTT] Sending immediate feedback after HA setting change");
+            sendMQTTData();
+            mqttFeedbackNeeded = false;
         }
         
         // Control HVAC relays
@@ -900,7 +908,7 @@ void loop()
     static unsigned long lastFanScheduleTime = 0;
     static unsigned long lastMQTTDataTime = 0;
     static unsigned long lastScheduleCheckTime = 0;
-    const unsigned long displayUpdateInterval = 30000; // Update display every 30 seconds for maximum touch responsiveness
+    const unsigned long displayUpdateInterval = 500; // Update display every 500ms
     const unsigned long sensorReadInterval = 2000;    // Read sensors every 2 seconds
 
     // Check boot button for factory reset
@@ -1879,6 +1887,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
         saveSettings();
         // Update display immediately when settings change via MQTT
         updateDisplay(currentTemp, currentHumidity);
+        // Flag for immediate MQTT feedback to Home Assistant
+        mqttFeedbackNeeded = true;
     }
 
     // Clear the handling flag
@@ -2109,8 +2119,8 @@ void controlRelays(float currentTemp)
             if (!heatingOn) {
                 Serial.printf("Activating heating: current %.1f < setpoint-swing %.1f\n", 
                              currentTemp, (setTempHeat - tempSwing));
+                activateHeating();
             }
-            activateHeating();
         }
         // Only turn off if above setpoint (hysteresis)
         else if (currentTemp >= setTempHeat)
@@ -2148,14 +2158,14 @@ void controlRelays(float currentTemp)
             if (!coolingOn) {
                 Serial.printf("Activating cooling: current %.1f > setpoint+swing %.1f\n", 
                              currentTemp, (setTempCool + tempSwing));
+                activateCooling();
             }
-            activateCooling();
         }
         // Only turn off if below setpoint (hysteresis)
-        else if (currentTemp <= setTempCool)
+        else if (currentTemp < setTempCool)
         {
             if (heatingOn || coolingOn || fanOn) {
-                Serial.printf("Deactivating cooling: current %.1f <= setpoint %.1f\n", 
+                Serial.printf("Deactivating cooling: current %.1f < setpoint %.1f\n", 
                              currentTemp, setTempCool);
             }
             turnOffAllRelays();
@@ -2174,8 +2184,8 @@ void controlRelays(float currentTemp)
             if (!heatingOn) {
                 Serial.printf("Auto mode activating heating: current %.1f < auto_setpoint-swing %.1f\n", 
                              currentTemp, (setTempAuto - autoTempSwing));
+                activateHeating();
             }
-            activateHeating();
         }
         else if (currentTemp > (setTempAuto + autoTempSwing))
         {
@@ -2184,8 +2194,8 @@ void controlRelays(float currentTemp)
             if (!coolingOn) {
                 Serial.printf("Auto mode activating cooling: current %.1f > auto_setpoint+swing %.1f\n", 
                              currentTemp, (setTempAuto + autoTempSwing));
+                activateCooling();
             }
-            activateCooling();
         }
         else
         {
@@ -2408,10 +2418,20 @@ void handleFanControl()
         digitalWrite(fanRelayPin, HIGH);
         fanOn = true;
     }
-    else if (fanMode == "auto" && !heatingOn && !coolingOn)
+    else if (fanMode == "auto")
     {
-        digitalWrite(fanRelayPin, LOW);
-        fanOn = false;
+        // In auto mode, activate fan when heating or cooling is on
+        if (heatingOn || coolingOn) {
+            if (!fanOn) {
+                digitalWrite(fanRelayPin, HIGH);
+                fanOn = true;
+            }
+        } else {
+            if (fanOn) {
+                digitalWrite(fanRelayPin, LOW);
+                fanOn = false;
+            }
+        }
     }
     setDisplayUpdateFlag(); // Option C: Request display update
 }
@@ -3105,10 +3125,10 @@ void updateDisplay(float currentTemp, float currentHumidity)
     static bool prevCoolingStatus = false;
     static bool prevFanStatus = false;
     
-    // Read actual relay states (same logic as LED status)
-    bool heatActive = (digitalRead(heatRelay1Pin) == HIGH) || (digitalRead(heatRelay2Pin) == HIGH);
-    bool coolActive = (digitalRead(coolRelay1Pin) == HIGH) || (digitalRead(coolRelay2Pin) == HIGH);
-    bool fanActive = (digitalRead(fanRelayPin) == HIGH);
+    // Use state flags instead of reading relay pins - this prevents flickering from electrical noise
+    bool heatActive = heatingOn;
+    bool coolActive = coolingOn;
+    bool fanActive = fanOn;
     
     // Check if status has changed and update only when necessary
     if (heatActive != prevHeatingStatus || coolActive != prevCoolingStatus || fanActive != prevFanStatus)
@@ -3701,16 +3721,14 @@ void setFanLED(bool state) {
 
 void updateStatusLEDs() {
     // Update heat LED - on if any heating stage is active
-    bool heatActive = (digitalRead(heatRelay1Pin) == HIGH) || (digitalRead(heatRelay2Pin) == HIGH);
-    setHeatLED(heatActive);
+    // Use state flags instead of reading relay pins - this prevents flickering from electrical noise
+    setHeatLED(heatingOn);
     
     // Update cool LED - on if any cooling stage is active
-    bool coolActive = (digitalRead(coolRelay1Pin) == HIGH) || (digitalRead(coolRelay2Pin) == HIGH);
-    setCoolLED(coolActive);
+    setCoolLED(coolingOn);
     
     // Update fan LED - on if fan relay is active
-    bool fanActive = (digitalRead(fanRelayPin) == HIGH);
-    setFanLED(fanActive);
+    setFanLED(fanOn);
 }
 */
 
